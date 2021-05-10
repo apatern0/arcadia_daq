@@ -1,0 +1,52 @@
+<node>
+
+  <node id="leds" address="0x00010000" permission="rw"/>
+
+  <node id="regfile"         address="0x00020000">
+    <node id="fwrev"         address="0x00000000" permission="r"/>
+    <node id="board_id"      address="0x00000001" permission="rw"/>
+    <node id="status"        address="0x00000002" permission="r"/>
+    <node id="ctrl"          address="0x00000003" permission="rw"/>
+    <node id="id0_lane_sync" address="0x00000004" permission="r"/>
+    <node id="id1_lane_sync" address="0x00000005" permission="r"/>
+    <node id="id2_lane_sync" address="0x00000006" permission="r"/>
+    <node id="debug"         address="0x00000007" permission="rw"/>
+    <node id="mode"          address="0x00000008" permission="rw"/>
+  </node>
+
+  <node id="fifo_id0" address="0x00021000">
+    <node id="occupancy" address="0x00000001" mode="single" permission="r"/>
+    <node id="reset" address="0x00000002" mode="single" permission="w"/>
+    <node id="data" address="0x00000003" mode="non-incremental" size="32768" permission="rw"/>
+  </node>
+  <node id="fifo_id1" address="0x00030000">
+    <node id="occupancy" address="0x00000001" mode="single" permission="r"/>
+    <node id="reset" address="0x00000002" mode="single" permission="w"/>
+    <node id="data" address="0x00000003" mode="non-incremental" size="32768" permission="rw"/>
+  </node>
+  <node id="fifo_id2" address="0x00031000">
+    <node id="occupancy" address="0x00000001" mode="single" permission="r"/>
+    <node id="reset" address="0x00000002" mode="single" permission="w"/>
+    <node id="data" address="0x00000003" mode="non-incremental" size="32768" permission="rw"/>
+  </node>
+
+  <node id="spi_id0" address="0x00040000">
+    <node id="TxRx0" address="0x00000000" permission="rw"/>
+    <node id="CTRL" address="0x00000010" permission="rw"/>
+    <node id="DIVIDER" address="0x00000014" permission="rw"/>
+    <node id="SS" address="0x00000018" permission="rw"/>
+  </node>
+  <node id="spi_id1" address="0x00050000">
+    <node id="TxRx0" address="0x00000000" permission="rw"/>
+    <node id="CTRL" address="0x00000010" permission="rw"/>
+    <node id="DIVIDER" address="0x00000014" permission="rw"/>
+    <node id="SS" address="0x00000018" permission="rw"/>
+  </node>
+  <node id="spi_id2" address="0x00060000">
+    <node id="TxRx0" address="0x00000000" permission="rw"/>
+    <node id="CTRL" address="0x00000010" permission="rw"/>
+    <node id="DIVIDER" address="0x00000014" permission="rw"/>
+    <node id="SS" address="0x00000018" permission="rw"/>
+  </node>
+
+</node>

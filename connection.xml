@@ -1,0 +1,3 @@
+<connections>
+<connection id="kc705" uri="ipbusudp-2.0://10.0.8.15:50001" address_table="file://address_table.xml"/>
+</connections>
