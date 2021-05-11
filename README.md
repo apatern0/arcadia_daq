@@ -2,7 +2,7 @@ Minimal cli tool for the arcadia DAQ Board
 
 # Build and Setup
 To build and use this tool the [IPBus software](https://ipbus.web.cern.ch/doc/user/html/software/installation.html) need to be installed in `/opt/cactus`.
-The the tool can then be build with
+Then the tool can then be built with
 ```
 $ make all
 ```
@@ -64,11 +64,11 @@ $ ./arca`dia-cli --daq
 $ ./arcadia-cli --daq=0,1,2
 (daq started for chip 0,1 and 2. Data will bi saved to dout{0,1,2}.raw)
 
-$ ./arcadia-cli --daq --daq-mode 0x10
+$ ./arcadia-cli --daq --daq-mode 10
 (daq started on chip 0, data generator enabled with divider set to 10 (~25 Mbps))
 ```
 
-The data generator fills the fifo with a simple 32-bit counter, received data can be verified with:
+The data generator fills the board data fifo with a simple 32-bit counter, received data can be verified with:
 ```
 $ ./chk_counter dout.raw
 ```
