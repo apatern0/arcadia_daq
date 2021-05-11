@@ -153,11 +153,10 @@ void DAQBoard_comm::DAQ_loop(const std::string fname, uint8_t chip_id){
 	if (!outstrm.is_open())
 		throw std::runtime_error("Can't open file for write");
 
+	const int max_iter = 5000;
+	uint32_t iter = 0, max_occ = 0;
 	double acc = 0.0;
-	uint32_t iter=0;
-	const double alpha = 1.0/1000.0;
-	uint32_t max_occ = 0;
-
+	const double alpha = 1.0/max_iter;
 
 	while (run_daq_flag[chip_id]){
 		uhal::ValWord<uint32_t> fifo_occupancy = Node_fifo_occupancy.read();
@@ -165,11 +164,12 @@ void DAQBoard_comm::DAQ_loop(const std::string fname, uint8_t chip_id){
 
 		uint32_t occupancy = (fifo_occupancy.value() & 0xffff);
 
+		// print very rough statistics
 		if (verbose) {
 			acc = (alpha * occupancy) + (1.0 - alpha) * acc;
 			iter++;
 			max_occ = std::max(max_occ, occupancy);
-			if (iter==1000){
+			if (iter == max_iter){
 				std::cout << (int)chip_id << ": " << (int)acc <<  " peak: " << max_occ << std::endl;
 				iter=0;
 				max_occ=0;
