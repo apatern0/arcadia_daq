@@ -14,7 +14,9 @@
 #define SPI_ASS      0x2000
 
 
-DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path, std::string device_id) :
+DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device_id,
+		bool verbose) :
+		verbose(verbose),
 		device_str(device_id),
 		ConnectionMgr("file://" + connection_xml_path),
 		lHW(ConnectionMgr.getDevice(device_str))
@@ -154,6 +156,8 @@ void DAQBoard_comm::DAQ_loop(const std::string fname, uint8_t chip_id){
 	double acc = 0.0;
 	uint32_t iter=0;
 	const double alpha = 1.0/1000.0;
+	uint32_t max_occ = 0;
+
 
 	while (run_daq_flag[chip_id]){
 		uhal::ValWord<uint32_t> fifo_occupancy = Node_fifo_occupancy.read();
@@ -161,11 +165,15 @@ void DAQBoard_comm::DAQ_loop(const std::string fname, uint8_t chip_id){
 
 		uint32_t occupancy = (fifo_occupancy.value() & 0xffff);
 
-		acc = (alpha * occupancy) + (1.0 - alpha) * acc;
-		iter++;
-		if (iter==1000){
-			std::cout << (int)chip_id << ": " << (int)acc << std::endl;
-			iter=0;
+		if (verbose) {
+			acc = (alpha * occupancy) + (1.0 - alpha) * acc;
+			iter++;
+			max_occ = std::max(max_occ, occupancy);
+			if (iter==1000){
+				std::cout << (int)chip_id << ": " << (int)acc <<  " peak: " << max_occ << std::endl;
+				iter=0;
+				max_occ=0;
+			}
 		}
 
 		if (occupancy == 0)

@@ -24,22 +24,25 @@ int main(int argc, char** argv){
 			cxxopts::value<std::vector<int>>()->implicit_value("0,1,2"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
-		("v,verbose", "Verbose output")
+		("v,verbose", "Verbose output, can be specified multiple times")
 	;
 
 	auto cxxopts_res = options.parse(argc, argv);
+	auto verbose_cnt = cxxopts_res.count("verbose");
 
 	if (cxxopts_res.count("help")) {
 		std::cout << options.help() << std::endl;
 		return 0;
 	}
 
-	if (! cxxopts_res.count("verbose"))
+	if (verbose_cnt < 2)
 		uhal::setLogLevelTo(uhal::Error());
 
+	bool daq_verbose_flag = (verbose_cnt >= 1);
 	DAQBoard_comm DAQBoard_mng(
 			cxxopts_res["conn"].as<std::string>(),
-			cxxopts_res["device"].as<std::string>()
+			cxxopts_res["device"].as<std::string>(),
+			daq_verbose_flag
 	);
 
 
@@ -102,7 +105,7 @@ int main(int argc, char** argv){
 
 		for(auto chipid: chipid_list)
 			DAQBoard_mng.start_DAQ(chipid);
-		
+
 		usleep(500000);
 		DAQBoard_mng.Write_DAQ_register("mode", daq_mode);
 

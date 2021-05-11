@@ -24,6 +24,7 @@ enum ARCADIA_command {
 class DAQBoard_comm{
 private:
 
+	const bool verbose = false;
 	const std::string device_str;
 	uhal::ConnectionManager ConnectionMgr;
 	uhal::HwInterface lHW;
@@ -37,7 +38,7 @@ private:
 
 public:
 
-	DAQBoard_comm(std::string connection_xml_path, std::string device_id);
+	DAQBoard_comm(std::string connection_xml_path, std::string device_id, bool verbose=false);
 
 	int SPI_transfer(ARCADIA_command command, uint16_t payload, uint8_t chip_id, uint32_t* rcv_data);
 	int Read_Register(uint8_t chip_id, uint16_t addr, uint16_t* data);
