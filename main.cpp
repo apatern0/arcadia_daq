@@ -21,7 +21,7 @@ int main(int argc, char** argv){
 		("w,write",   "Write \"arg\" in selected register", cxxopts::value<uint32_t>())
 		("dump-regs", "Dump DAQ Board register")
 		("q,daq",     "Start DAQ, with optional comma-separated list of chip to read",
-			cxxopts::value<std::vector<int>>()->implicit_value("0,1,2"))
+			cxxopts::value<std::vector<int>>()->implicit_value("0"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
 		("v,verbose", "Verbose output, can be specified multiple times")
