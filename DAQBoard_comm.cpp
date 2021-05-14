@@ -31,7 +31,14 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 		lHW.getNode(id + ".CTRL").write(0);
 		lHW.getNode(id + ".SS").write(1);
 	}
-	lHW.dispatch();
+
+	try {
+		lHW.dispatch();
+	}
+	catch(...){
+		spi_unavaiable = true;
+		std::cerr << "SPI core configuration fail" << std::endl;
+	}
 
 }
 
@@ -81,6 +88,9 @@ int DAQBoard_comm::SPI_transfer(ARCADIA_command command, uint16_t payload, uint8
 
 int DAQBoard_comm::Read_Register(uint8_t chip_id, uint16_t addr, uint16_t* data){
 
+	if (spi_unavaiable)
+		return -1;
+
 	int res;
 	uint32_t reg_data;
 
@@ -95,6 +105,9 @@ int DAQBoard_comm::Read_Register(uint8_t chip_id, uint16_t addr, uint16_t* data)
 
 
 int DAQBoard_comm::Write_Register(uint8_t chip_id, uint16_t addr, uint16_t data){
+
+	if (spi_unavaiable)
+		return -1;
 
 	int res;
 	res = SPI_transfer(ARCADIA_WR_PNTR, addr, chip_id, NULL);

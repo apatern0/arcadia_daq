@@ -29,6 +29,7 @@ private:
 	uhal::ConnectionManager ConnectionMgr;
 	uhal::HwInterface lHW;
 
+	bool spi_unavaiable = false;
 	const std::array<const std::string, 3> master_ids = {"spi_id0", "spi_id1", "spi_id2"};
 
 	std::array<std::thread, 3> data_reader;
