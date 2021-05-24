@@ -2,9 +2,10 @@
 #define DAQUTIL_H
 
 #include <stdint.h>
-#include <string.h>
+#include <string>
 #include <thread>
 #include <atomic>
+#include <map>
 
 #include "uhal/uhal.hpp"
 
@@ -20,6 +21,46 @@ enum ARCADIA_command {
 	ARCADIA_RD_ICR0 = 0xb,
 	ARCADIA_RD_ICR1 = 0xc
 };
+
+typedef struct {
+	int word_address;
+	int mask;
+	int offset;
+	int default_value;
+} arcadia_gcr_param;
+
+const int register_address_max = 12;
+static std::map <std::string, arcadia_gcr_param> registers_map = {
+	{"READOUT_CLK_DIVIDER",       {0, 0x000f,  0, 3}},
+	{"TIMING_CLK_DIVIDER",        {0, 0x000f,  4, 8}},
+	{"MAX_READS",                 {0, 0x000f,  8, 8}},
+	{"TOKEN_COUNTER",             {0, 0x000f, 12, 8}},
+
+	{"TEST_PULSE_MASK",           {1, 0xffff, 0, 0}},
+	{"SECTION_READ_MASK",         {2, 0xffff, 0, 0}},
+	{"SECTION_CLOCK_MASK",        {3, 0xffff, 0, 0}},
+
+	{"DIGITAL_INJECTION",         {4, 0xffff, 0, 0}},
+	{"FORCE_ENABLE_INJECTION",    {5, 0xffff, 0, 0xffff}},
+	{"FORCE_DISABLE_MASK",        {6, 0xffff, 0, 0xffff}},
+
+	{"OPERATION",                 {7, 0x0001, 0, 0}},
+	{"SERIALIZER_SYNC",           {7, 0x0001, 1, 0}},
+	{"LVDS_STRENGTH",             {7, 0x0007, 2, 4}},
+	{"SECTION_CLOCK_GATING",      {7, 0x0001, 5, 0}},
+	{"TIMESTAMP_LATCHES",         {7, 0x0001, 6, 1}},
+	{"DISABLE_SMART_READOUT",     {7, 0x0001, 7, 0}},
+	{"EOS_CLOCK_GATING_ENABLE",   {7, 0x0001, 8, 0}},
+
+	{"HELPER_SECCFG_SECTIONS",    { 8, 0xffff,  0, 0xffff}},
+	{"HELPER_SECCFG_COLUMNS",     { 9, 0xffff,  0, 0xffff}},
+	{"HELPER_SECCFG_PRSTART",     {10, 0x007f,  0, 0x007f}},
+	{"HELPER_SECCFG_PRSKIP",      {10, 0x007f,  7, 0x0000}},
+	{"HELPER_SECCFG_CFGDATA",     {10, 0x0003, 14, 0x0001}},
+	{"HELPER_SECCFG_PRSTOP",      {11, 0x007f,  0, 0x0000}},
+	{"HELPER_SECCFG_PIXELSELECT", {11, 0x001f,  7, 0x001f}},
+};
+
 
 class DAQBoard_comm{
 private:
@@ -40,6 +81,7 @@ private:
 public:
 
 	DAQBoard_comm(std::string connection_xml_path, std::string device_id, bool verbose=false);
+	int read_conf(std::string fname);
 
 	int spi_transfer(ARCADIA_command command, uint16_t payload, uint8_t chip_id, uint32_t* rcv_data);
 	int read_register(uint8_t chip_id, uint16_t addr, uint16_t* data);

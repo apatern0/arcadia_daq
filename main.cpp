@@ -14,6 +14,7 @@ int main(int argc, char** argv){
 			cxxopts::value<std::string>()->default_value("connection.xml"))
 		("device",    "Device id to select from connection.xml",
 			cxxopts::value<std::string>()->default_value("kc705"))
+		("config",    "load registers .conf file", cxxopts::value<std::string>())
 		("c,chip",    "Chip id, one of [0,1,2]", cxxopts::value<uint8_t>()->default_value("0"))
 		("gcr",       "Select GCR", cxxopts::value<uint16_t>())
 		("reg",       "Select fpga register", cxxopts::value<std::string>())
@@ -44,6 +45,12 @@ int main(int argc, char** argv){
 			cxxopts_res["device"].as<std::string>(),
 			daq_verbose_flag
 	);
+
+
+	if (cxxopts_res.count("config")){
+		std::string fname =  cxxopts_res["config"].as<std::string>();
+		DAQBoard_mng.read_conf(fname);
+	}
 
 
 	if (cxxopts_res.count("write")){

@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <stdexcept>
 
+#include "INIReader.h"
 #include "DAQBoard_comm.h"
 
 #define SPI_CHAR_LEN 0x18
@@ -12,6 +13,7 @@
 #define SPI_LSB      0x800
 #define SPI_IE       0x1000
 #define SPI_ASS      0x2000
+
 
 
 DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device_id,
@@ -40,6 +42,32 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 		std::cerr << "SPI core configuration fail" << std::endl;
 	}
 
+}
+
+
+int DAQBoard_comm::read_conf(std::string fname){
+
+	std::vector<uint32_t> config_regs_data(register_address_max);
+
+	INIReader reader(fname);
+	if (reader.ParseError() < 0) {
+		std::cerr << "Can't open file:" << fname << std::endl;
+		return 1;
+	}
+
+	for(auto const& reg: registers_map){
+
+		std::string const& regname = reg.first;
+		arcadia_gcr_param const& param = reg.second;
+
+		uint16_t value = reader.GetInteger("id0", regname, param.default_value);
+		config_regs_data[param.word_address] |= (value & param.mask) << param.offset;
+	}
+
+	for(int n=0; n < register_address_max; n++)
+		write_register(0, n, config_regs_data[n]);
+
+	return 0;
 }
 
 
