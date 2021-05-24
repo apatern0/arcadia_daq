@@ -91,7 +91,7 @@ int DAQBoard_comm::Read_Register(uint8_t chip_id, uint16_t addr, uint16_t* data)
 	if (spi_unavaiable)
 		return -1;
 
-	int gcr_address = addr & 0x2000;
+	int gcr_address = addr | 0x2000;
 	int res;
 	uint32_t reg_data;
 
@@ -110,7 +110,7 @@ int DAQBoard_comm::Write_Register(uint8_t chip_id, uint16_t addr, uint16_t data)
 	if (spi_unavaiable)
 		return -1;
 
-	int gcr_address = addr & 0x2000;
+	int gcr_address = addr | 0x2000;
 	int res;
 	res = SPI_transfer(ARCADIA_WR_PNTR, gcr_address, chip_id, NULL);
 	res = SPI_transfer(ARCADIA_WR_DATA, data, chip_id, NULL);
