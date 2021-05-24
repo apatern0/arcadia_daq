@@ -35,22 +35,22 @@ private:
 	std::array<std::thread, 3> data_reader;
 	std::array<std::atomic_bool, 3> run_daq_flag;
 
-	void DAQ_loop(const std::string fname, uint8_t chip_id);
+	void daq_loop(const std::string fname, uint8_t chip_id);
 
 public:
 
 	DAQBoard_comm(std::string connection_xml_path, std::string device_id, bool verbose=false);
 
-	int SPI_transfer(ARCADIA_command command, uint16_t payload, uint8_t chip_id, uint32_t* rcv_data);
-	int Read_Register(uint8_t chip_id, uint16_t addr, uint16_t* data);
-	int Write_Register(uint8_t chip_id, uint16_t addr, uint16_t data);
+	int spi_transfer(ARCADIA_command command, uint16_t payload, uint8_t chip_id, uint32_t* rcv_data);
+	int read_register(uint8_t chip_id, uint16_t addr, uint16_t* data);
+	int write_register(uint8_t chip_id, uint16_t addr, uint16_t data);
 
-	int Read_DAQ_register(std::string reg_handle, uint32_t* data);
-	int Write_DAQ_register(std::string reg_handle, uint32_t data);
-	void Dump_DAQBoard_reg();
+	int read_fpga_register(std::string reg_handle, uint32_t* data);
+	int write_fpga_register(std::string reg_handle, uint32_t data);
+	void dump_DAQBoard_reg();
 
-	int start_DAQ(uint8_t chip_id, std::string fname = "dout");
-	int stop_DAQ(uint8_t chip_id);
+	int start_daq(uint8_t chip_id, std::string fname = "dout");
+	int stop_daq(uint8_t chip_id);
 
 };
 #endif

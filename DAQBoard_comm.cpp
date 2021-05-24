@@ -43,7 +43,7 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 }
 
 
-int DAQBoard_comm::SPI_transfer(ARCADIA_command command, uint16_t payload, uint8_t chip_id,
+int DAQBoard_comm::spi_transfer(ARCADIA_command command, uint16_t payload, uint8_t chip_id,
 		uint32_t* rcv_data){
 
 	const uhal::Node& SPI_CTRL_Node = lHW.getNode(master_ids[chip_id] + ".CTRL");
@@ -86,7 +86,7 @@ int DAQBoard_comm::SPI_transfer(ARCADIA_command command, uint16_t payload, uint8
 }
 
 
-int DAQBoard_comm::Read_Register(uint8_t chip_id, uint16_t addr, uint16_t* data){
+int DAQBoard_comm::read_register(uint8_t chip_id, uint16_t addr, uint16_t* data){
 
 	if (spi_unavaiable)
 		return -1;
@@ -95,8 +95,8 @@ int DAQBoard_comm::Read_Register(uint8_t chip_id, uint16_t addr, uint16_t* data)
 	int res;
 	uint32_t reg_data;
 
-	res = SPI_transfer(ARCADIA_RD_PNTR, gcr_address, chip_id, NULL);
-	res = SPI_transfer(ARCADIA_RD_DATA, 0, chip_id, &reg_data);
+	res = spi_transfer(ARCADIA_RD_PNTR, gcr_address, chip_id, NULL);
+	res = spi_transfer(ARCADIA_RD_DATA, 0, chip_id, &reg_data);
 
 	if (data != NULL)
 		*data = (reg_data&0xffff);
@@ -105,21 +105,21 @@ int DAQBoard_comm::Read_Register(uint8_t chip_id, uint16_t addr, uint16_t* data)
 }
 
 
-int DAQBoard_comm::Write_Register(uint8_t chip_id, uint16_t addr, uint16_t data){
+int DAQBoard_comm::write_register(uint8_t chip_id, uint16_t addr, uint16_t data){
 
 	if (spi_unavaiable)
 		return -1;
 
 	int gcr_address = addr | 0x2000;
 	int res;
-	res = SPI_transfer(ARCADIA_WR_PNTR, gcr_address, chip_id, NULL);
-	res = SPI_transfer(ARCADIA_WR_DATA, data, chip_id, NULL);
+	res = spi_transfer(ARCADIA_WR_PNTR, gcr_address, chip_id, NULL);
+	res = spi_transfer(ARCADIA_WR_DATA, data, chip_id, NULL);
 
 	return res;
 }
 
 
-int DAQBoard_comm::Read_DAQ_register(const std::string reg_handle, uint32_t* data){
+int DAQBoard_comm::read_fpga_register(const std::string reg_handle, uint32_t* data){
 
 	const uhal::Node& reg_Node = lHW.getNode("regfile." + reg_handle);
 
@@ -132,7 +132,7 @@ int DAQBoard_comm::Read_DAQ_register(const std::string reg_handle, uint32_t* dat
 }
 
 
-int DAQBoard_comm::Write_DAQ_register(const std::string reg_handle, uint32_t data){
+int DAQBoard_comm::write_fpga_register(const std::string reg_handle, uint32_t data){
 
 	const uhal::Node& reg_Node = lHW.getNode("regfile." + reg_handle);
 
@@ -143,7 +143,7 @@ int DAQBoard_comm::Write_DAQ_register(const std::string reg_handle, uint32_t dat
 }
 
 
-void DAQBoard_comm::Dump_DAQBoard_reg(){
+void DAQBoard_comm::dump_DAQBoard_reg(){
 
 	for(auto reg: lHW.getNodes("regfile\\..*")){
 		const uhal::Node& reg_Node = lHW.getNode(reg);
@@ -156,7 +156,7 @@ void DAQBoard_comm::Dump_DAQBoard_reg(){
 }
 
 
-void DAQBoard_comm::DAQ_loop(const std::string fname, uint8_t chip_id){
+void DAQBoard_comm::daq_loop(const std::string fname, uint8_t chip_id){
 
 	const std::string id_str = std::to_string(chip_id);
 	const std::string filename = fname + id_str + ".raw";
@@ -212,20 +212,20 @@ void DAQBoard_comm::DAQ_loop(const std::string fname, uint8_t chip_id){
 }
 
 
-int DAQBoard_comm::start_DAQ(uint8_t chip_id, std::string fname){
+int DAQBoard_comm::start_daq(uint8_t chip_id, std::string fname){
 
 	if (chip_id > 2)
 		return -1;
 
 	run_daq_flag[chip_id] = true;
-	data_reader[chip_id] = std::thread(&DAQBoard_comm::DAQ_loop, this, fname, chip_id);
+	data_reader[chip_id] = std::thread(&DAQBoard_comm::daq_loop, this, fname, chip_id);
 	std::cout << (int)chip_id << ": Data read thread started" << std::endl;
 
 	return 0;
 }
 
 
-int DAQBoard_comm::stop_DAQ(uint8_t chip_id){
+int DAQBoard_comm::stop_daq(uint8_t chip_id){
 
 	if (chip_id > 2)
 		return -1;

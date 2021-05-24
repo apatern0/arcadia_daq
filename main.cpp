@@ -52,13 +52,13 @@ int main(int argc, char** argv){
 			uint8_t chipid = cxxopts_res["chip"].as<uint8_t>();
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
 			uint16_t value = cxxopts_res["write"].as<uint32_t>();
-			DAQBoard_mng.Write_Register(chipid, gcr, value);
+			DAQBoard_mng.write_register(chipid, gcr, value);
 			std::cout << "write grc: " << gcr << " val: 0x" << std::hex << value << std::endl;
 		}
 		else if (cxxopts_res.count("reg")){
 			std::string reg = cxxopts_res["reg"].as<std::string>();
 			uint32_t value = cxxopts_res["write"].as<uint32_t>();
-			DAQBoard_mng.Write_DAQ_register(reg, value);
+			DAQBoard_mng.write_fpga_register(reg, value);
 			std::cout << "write reg: " << reg << " val: 0x" << std::hex << value << std::endl;
 		}
 		else {
@@ -75,13 +75,13 @@ int main(int argc, char** argv){
 			uint16_t val;
 			uint8_t chipid = cxxopts_res["chip"].as<uint8_t>();
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
-			DAQBoard_mng.Read_Register(chipid, gcr, &val);
+			DAQBoard_mng.read_register(chipid, gcr, &val);
 			std::cout << "read grc: " << gcr << " val: 0x" << std::hex << val << std::endl;
 		}
 		else if(cxxopts_res.count("reg")){
 			uint32_t val;
 			std::string reg = cxxopts_res["reg"].as<std::string>();
-			DAQBoard_mng.Read_DAQ_register(reg, &val);
+			DAQBoard_mng.read_fpga_register(reg, &val);
 			std::cout << "read reg: " << reg << " val: 0x" << std::hex << val << std::endl;
 		}
 		else {
@@ -93,7 +93,7 @@ int main(int argc, char** argv){
 
 
 	if (cxxopts_res.count("dump-regs"))
-		DAQBoard_mng.Dump_DAQBoard_reg();
+		DAQBoard_mng.dump_DAQBoard_reg();
 
 
 	if (cxxopts_res.count("daq")){
@@ -104,18 +104,18 @@ int main(int argc, char** argv){
 		std::cout << "Press enter to stop" << std::endl;
 
 		for(auto chipid: chipid_list)
-			DAQBoard_mng.start_DAQ(chipid);
+			DAQBoard_mng.start_daq(chipid);
 
 		usleep(500000);
-		DAQBoard_mng.Write_DAQ_register("mode", daq_mode);
+		DAQBoard_mng.write_fpga_register("mode", daq_mode);
 
 		std::cin.get();
 
-		DAQBoard_mng.Write_DAQ_register("mode", 0x0);
+		DAQBoard_mng.write_fpga_register("mode", 0x0);
 		usleep(100000);
 
 		for(uint8_t chipid=0; chipid<3; chipid++)
-			DAQBoard_mng.stop_DAQ(chipid);
+			DAQBoard_mng.stop_daq(chipid);
 
 	}
 
