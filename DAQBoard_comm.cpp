@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <stdexcept>
 
-#include "INIReader.h"
+#include "ini.h"
 #include "DAQBoard_comm.h"
 
 #define SPI_CHAR_LEN 0x18
@@ -47,27 +47,74 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 
 int DAQBoard_comm::read_conf(std::string fname){
 
-	std::vector<uint32_t> config_regs_data(register_address_max);
-
-	INIReader reader(fname);
-	if (reader.ParseError() < 0) {
-		std::cerr << "Can't open file:" << fname << std::endl;
-		return 1;
-	}
-
+	// init register array with default values
 	for(auto const& reg: registers_map){
-
-		std::string const& regname = reg.first;
 		arcadia_gcr_param const& param = reg.second;
-
-		uint16_t value = reader.GetInteger("id0", regname, param.default_value);
-		config_regs_data[param.word_address] |= (value & param.mask) << param.offset;
+		register_address_array[param.word_address] |= (param.default_value << param.offset);
 	}
 
-	for(int n=0; n < register_address_max; n++)
-		write_register(0, n, config_regs_data[n]);
+	// run parser
+	ini_parse(fname.c_str(), conf_handler, this);
 
 	return 0;
+}
+
+
+int DAQBoard_comm::conf_handler(void* user, const char* section, const char* name,
+		const char* value){
+
+	const int inih_OK  = 1;
+	const int inih_ERR = 0;
+	// cast *this pointer
+	DAQBoard_comm* self = static_cast<DAQBoard_comm*>(user);
+
+	// parse section name
+	std::string section_str(section);
+	uint16_t chip_id;
+	if (section_str == "id0"){
+		chip_id = 0;
+	}
+	else if (section_str == "id1"){
+		chip_id = 1;
+	}
+	else if (section_str == "id2"){
+		chip_id = 2;
+	}
+	else {
+		std::cerr << "Unknown section: " << section_str << std::endl;
+		return inih_ERR;
+	}
+
+	// parse key/value
+	std::string register_name(name);
+	uint16_t reg_value = strtol(value, NULL, 0);
+
+	// handle ICR0
+	if (register_name == "ICR0"){
+		//std::cout << "ICR0 :" << std::hex << reg_value << std::endl;
+		self->spi_transfer(ARCADIA_WR_ICR0, reg_value, chip_id, NULL);
+		return inih_OK;
+	}
+
+	// if not ICR0, lookup regname
+	auto search = registers_map.find(name);
+	if (search == registers_map.end()){
+		std::cerr << "Warning: invalid conf key found: " << name << std::endl;
+		return inih_ERR;
+	}
+
+	// write reg
+	arcadia_gcr_param const& param = search->second;
+	self->register_address_array[param.word_address] |=
+		(reg_value & param.mask) << param.offset;
+
+	//std::cout << "id: " << chip_id << " reg: " << param.word_address << " val: " <<
+	//	std::hex << self->register_address_array[param.word_address] << std::endl;
+
+	self->write_register(chip_id, param.word_address,
+			self->register_address_array[param.word_address]);
+
+	return inih_OK;
 }
 
 

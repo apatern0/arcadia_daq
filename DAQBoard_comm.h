@@ -76,6 +76,10 @@ private:
 	std::array<std::thread, 3> data_reader;
 	std::array<std::atomic_bool, 3> run_daq_flag;
 
+	std::array<uint16_t, register_address_max> register_address_array;
+	static int conf_handler(void* user, const char* section, const char* name,
+			const char* value);
+
 	void daq_loop(const std::string fname, uint8_t chip_id);
 
 public:
