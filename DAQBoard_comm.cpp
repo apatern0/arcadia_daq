@@ -54,7 +54,10 @@ int DAQBoard_comm::read_conf(std::string fname){
 	}
 
 	// run parser
-	ini_parse(fname.c_str(), conf_handler, this);
+	if (ini_parse(fname.c_str(), conf_handler, this) < 0){
+		std::cerr << "Can't open file: " << fname << std::endl;
+		return -1;
+	}
 
 	return 0;
 }
