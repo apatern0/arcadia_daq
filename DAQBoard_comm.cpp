@@ -14,6 +14,7 @@
 #define SPI_IE       0x1000
 #define SPI_ASS      0x2000
 
+#define SPI_CLOCK_DIV 7
 
 
 DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device_id,
@@ -32,6 +33,7 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 	for (int id=0; id<3; id++){
 		std::string spi_id = "spi_id" + std::to_string(id);
 		lHW.getNode(spi_id + ".CTRL").write(0);
+		lHW.getNode(spi_id + ".DIVIDER").write(SPI_CLOCK_DIV);
 		lHW.getNode(spi_id + ".SS").write(1);
 
 		try {
