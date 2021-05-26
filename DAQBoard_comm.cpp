@@ -29,17 +29,19 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 		x = false;
 
 	// init spi controller
-	for (std::string id: master_ids){
-		lHW.getNode(id + ".CTRL").write(0);
-		lHW.getNode(id + ".SS").write(1);
-	}
+	for (int id=0; id<3; id++){
+		std::string spi_id = "spi_id" + std::to_string(id);
+		lHW.getNode(spi_id + ".CTRL").write(0);
+		lHW.getNode(spi_id + ".SS").write(1);
 
-	try {
-		lHW.dispatch();
-	}
-	catch(...){
-		spi_unavaiable = true;
-		std::cerr << "SPI core configuration fail" << std::endl;
+		try {
+			lHW.dispatch();
+		}
+		catch(...){
+			spi_unavaiable[id] = true;
+			std::cerr << "SPI core " << spi_id << " configuration fail" << std::endl;
+		}
+
 	}
 
 }
@@ -166,7 +168,10 @@ int DAQBoard_comm::spi_transfer(ARCADIA_command command, uint16_t payload, uint8
 
 int DAQBoard_comm::read_register(uint8_t chip_id, uint16_t addr, uint16_t* data){
 
-	if (spi_unavaiable)
+	if (chip_id>2)
+		return -1;
+
+	if (spi_unavaiable[chip_id])
 		return -1;
 
 	int gcr_address = addr | 0x2000;
@@ -185,7 +190,10 @@ int DAQBoard_comm::read_register(uint8_t chip_id, uint16_t addr, uint16_t* data)
 
 int DAQBoard_comm::write_register(uint8_t chip_id, uint16_t addr, uint16_t data){
 
-	if (spi_unavaiable)
+	if (chip_id>2)
+		return -1;
+
+	if (spi_unavaiable[chip_id])
 		return -1;
 
 	int gcr_address = addr | 0x2000;
