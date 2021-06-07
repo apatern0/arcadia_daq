@@ -29,8 +29,8 @@ typedef struct {
 	int default_value;
 } arcadia_reg_param;
 
-const int register_address_max = 12;
-static std::map <std::string, arcadia_reg_param> GCR_map = {
+const int GCR_address_max = 12;
+static const std::map <std::string, arcadia_reg_param> GCR_map = {
 	{"READOUT_CLK_DIVIDER",       {0, 0x000f,  0, 3}},
 	{"TIMING_CLK_DIVIDER",        {0, 0x000f,  4, 8}},
 	{"MAX_READS",                 {0, 0x000f,  8, 8}},
@@ -62,6 +62,35 @@ static std::map <std::string, arcadia_reg_param> GCR_map = {
 };
 
 
+const int ctrl_address_max = 10;
+static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
+	{"resetIDELAYTCTRL",   {1, 0x0001,  0, 0}},
+	{"resetISERDES",       {2, 0x0001,  0, 0}},
+	{"setIDELAYTap0",      {3, 0x000f,  0, 0}},
+	{"setIDELAYTap1",      {3, 0x000f,  5, 0}},
+	{"setIDELAYTap2",      {3, 0x000f, 10, 0}},
+	{"setIDELAYTap3",      {3, 0x000f, 15, 0}},
+	{"setIDELAYTap4",      {4, 0x000f,  0, 0}},
+	{"setIDELAYTap5",      {4, 0x000f,  5, 0}},
+	{"setIDELAYTap6",      {4, 0x000f, 10, 0}},
+	{"setIDELAYTap7",      {4, 0x000f, 15, 0}},
+	{"setIDELAYTap8",      {5, 0x000f,  0, 0}},
+	{"setIDELAYTap9",      {5, 0x000f,  5, 0}},
+	{"setIDELAYTapa",      {5, 0x000f, 10, 0}},
+	{"setIDELAYTapb",      {5, 0x000f, 15, 0}},
+	{"setIDELAYTapc",      {6, 0x000f,  0, 0}},
+	{"setIDELAYTapd",      {6, 0x000f,  5, 0}},
+	{"setIDELAYTape",      {6, 0x000f, 10, 0}},
+	{"setIDELAYTapf",      {6, 0x000f, 15, 0}},
+	{"setSyncResetPhase",  {7, 0x0001,  0, 0}},
+	{"doRESET",            {8, 0x0001,  0, 0}},
+	{"resetSPI",           {9, 0x0001,  0, 0}},
+	{"syncTX",             {9, 0x00ff,  0, 0}},
+	{"readTxState",        {9, 0xffff,  0, 0}},
+};
+
+
+
 class DAQBoard_comm{
 private:
 
@@ -77,7 +106,9 @@ private:
 	std::array<std::thread, 3> data_reader;
 	std::array<std::atomic_bool, 3> run_daq_flag;
 
-	std::array<uint16_t, register_address_max> register_address_array;
+	//TODO: actually support multiple chips..
+	std::array<uint16_t, GCR_address_max> GCR_address_array;
+	std::array<uint16_t, ctrl_address_max> ctrl_address_array;
 	static int conf_handler(void* user, const char* section, const char* name,
 			const char* value);
 

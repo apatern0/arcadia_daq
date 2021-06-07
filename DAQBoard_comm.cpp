@@ -54,7 +54,7 @@ int DAQBoard_comm::read_conf(std::string fname){
 	// init register array with default values
 	for(auto const& reg: GCR_map){
 		arcadia_reg_param const& param = reg.second;
-		register_address_array[param.word_address] |= (param.default_value << param.offset);
+		GCR_address_array[param.word_address] |= (param.default_value << param.offset);
 	}
 
 	// run parser
@@ -84,7 +84,7 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 
 		// handle ICR0
 		if (register_name == "ICR0"){
-			std::cout << "ICR0 :" << std::hex << reg_value << std::endl;
+			//std::cout << "ICR0 :" << std::hex << reg_value << std::endl;
 			self->spi_transfer(ARCADIA_WR_ICR0, reg_value, section_str, NULL);
 			return inih_OK;
 		}
@@ -98,19 +98,36 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 
 		// write reg
 		arcadia_reg_param const& param = search->second;
-		self->register_address_array[param.word_address] |=
+		self->GCR_address_array[param.word_address] |=
 			(reg_value & param.mask) << param.offset;
 
-		std::cout << "id: " << section_str << " reg: " << param.word_address << " val: " <<
-			std::hex << self->register_address_array[param.word_address] << std::endl;
+		//std::cout << "id: " << section_str << " reg: " << param.word_address << " val: " <<
+		//	std::hex << self->GCR_address_array[param.word_address] << std::endl;
 
 		self->write_register(section_str, param.word_address,
-				self->register_address_array[param.word_address]);
+				self->GCR_address_array[param.word_address]);
 
 		return inih_OK;
 	}
 	else if (section_str == "controller_id0" || section_str == "controller_id1" ||
 			section_str == "controller_id2"){
+
+		auto search = ctrl_cmd_map.find(name);
+		if (search == ctrl_cmd_map.end()){
+			std::cerr << "Warning: invalid conf key found: " << name << std::endl;
+			return inih_ERR;
+		}
+
+		arcadia_reg_param const& param = search->second;
+		self->ctrl_address_array[param.word_address] |=
+			(reg_value & param.mask) << param.offset;
+
+		uint32_t command = (param.word_address<<20) |
+			self->ctrl_address_array[param.word_address];
+
+		//std::cout << "controller cmd:" << std::hex << command << std::endl;
+		self->write_fpga_register(section_str, command);
+
 		return inih_OK;
 	}
 	else {

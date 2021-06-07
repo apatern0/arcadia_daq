@@ -49,4 +49,10 @@
     <node id="SS" address="0x00000018" permission="rw"/>
   </node>
 
+  <node id="pulser" address="0x00070000" permission="rw"/>
+
+  <node id="controller_id0" address="0x00080000" permission="rw"/>
+  <node id="controller_id1" address="0x00081000" permission="rw"/>
+  <node id="controller_id2" address="0x00090000" permission="rw"/>
+
 </node>
