@@ -40,10 +40,10 @@ regfile.status: 0x0
 
 Read/write one fpga registers (debug register):
 ```
-$ ./arcadia-cli --reg debug --read
+$ ./arcadia-cli --reg regfile.debug --read
 Read reg: debug val: 0xaaaa1234
 
-$ ./arcadia-cli --reg debug --write 0xdeadbeef
+$ ./arcadia-cli --reg regfile.debug --write 0xdeadbeef
 write reg: debug val: 0xdeadbeef
 ```
 

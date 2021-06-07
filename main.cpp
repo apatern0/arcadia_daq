@@ -15,7 +15,8 @@ int main(int argc, char** argv){
 		("device",    "Device id to select from connection.xml",
 			cxxopts::value<std::string>()->default_value("kc705"))
 		("config",    "load registers .conf file", cxxopts::value<std::string>())
-		("c,chip",    "Chip id, one of [0,1,2]", cxxopts::value<uint8_t>()->default_value("0"))
+		("c,chip",    "Chip id, one of [id0, id1, id2]",
+			cxxopts::value<std::string>()->default_value("id0"))
 		("gcr",       "Select GCR", cxxopts::value<uint16_t>())
 		("reg",       "Select fpga register", cxxopts::value<std::string>())
 		("r,read",    "Read selected register")
@@ -56,7 +57,7 @@ int main(int argc, char** argv){
 	if (cxxopts_res.count("write")){
 
 		if (cxxopts_res.count("gcr")){
-			uint8_t chipid = cxxopts_res["chip"].as<uint8_t>();
+			std::string chipid = cxxopts_res["chip"].as<std::string>();
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
 			uint16_t value = cxxopts_res["write"].as<uint32_t>();
 			DAQBoard_mng.write_register(chipid, gcr, value);
@@ -79,14 +80,14 @@ int main(int argc, char** argv){
 	if (cxxopts_res.count("read")){
 
 		if (cxxopts_res.count("gcr")){
-			uint16_t val;
-			uint8_t chipid = cxxopts_res["chip"].as<uint8_t>();
+			uint16_t val = 0;
+			std::string chipid = cxxopts_res["chip"].as<std::string>();
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
 			DAQBoard_mng.read_register(chipid, gcr, &val);
 			std::cout << "read grc: " << gcr << " val: 0x" << std::hex << val << std::endl;
 		}
 		else if(cxxopts_res.count("reg")){
-			uint32_t val;
+			uint32_t val = 0;
 			std::string reg = cxxopts_res["reg"].as<std::string>();
 			DAQBoard_mng.read_fpga_register(reg, &val);
 			std::cout << "read reg: " << reg << " val: 0x" << std::hex << val << std::endl;

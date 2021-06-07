@@ -30,8 +30,8 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 		x = false;
 
 	// init spi controller
-	for (int id=0; id<3; id++){
-		std::string spi_id = "spi_id" + std::to_string(id);
+	for (std::string id: {"id0", "id1", "id2"}){
+		std::string spi_id = "spi_" + id;
 		lHW.getNode(spi_id + ".CTRL").write(0);
 		lHW.getNode(spi_id + ".DIVIDER").write(SPI_CLOCK_DIV);
 		lHW.getNode(spi_id + ".SS").write(1);
@@ -52,8 +52,8 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 int DAQBoard_comm::read_conf(std::string fname){
 
 	// init register array with default values
-	for(auto const& reg: registers_map){
-		arcadia_gcr_param const& param = reg.second;
+	for(auto const& reg: GCR_map){
+		arcadia_reg_param const& param = reg.second;
 		register_address_array[param.word_address] |= (param.default_value << param.offset);
 	}
 
@@ -75,61 +75,58 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 	// cast *this pointer
 	DAQBoard_comm* self = static_cast<DAQBoard_comm*>(user);
 
-	// parse section name
+	// parse section name and key/value
 	std::string section_str(section);
-	uint16_t chip_id;
-	if (section_str == "id0"){
-		chip_id = 0;
+	std::string register_name(name);
+	uint16_t reg_value = strtol(value, NULL, 0);
+
+	if (section_str == "id0" || section_str == "id1" || section_str == "id2"){
+
+		// handle ICR0
+		if (register_name == "ICR0"){
+			std::cout << "ICR0 :" << std::hex << reg_value << std::endl;
+			self->spi_transfer(ARCADIA_WR_ICR0, reg_value, section_str, NULL);
+			return inih_OK;
+		}
+
+		// if not ICR0, lookup regname
+		auto search = GCR_map.find(name);
+		if (search == GCR_map.end()){
+			std::cerr << "Warning: invalid conf key found: " << name << std::endl;
+			return inih_ERR;
+		}
+
+		// write reg
+		arcadia_reg_param const& param = search->second;
+		self->register_address_array[param.word_address] |=
+			(reg_value & param.mask) << param.offset;
+
+		std::cout << "id: " << section_str << " reg: " << param.word_address << " val: " <<
+			std::hex << self->register_address_array[param.word_address] << std::endl;
+
+		self->write_register(section_str, param.word_address,
+				self->register_address_array[param.word_address]);
+
+		return inih_OK;
 	}
-	else if (section_str == "id1"){
-		chip_id = 1;
-	}
-	else if (section_str == "id2"){
-		chip_id = 2;
+	else if (section_str == "controller_id0" || section_str == "controller_id1" ||
+			section_str == "controller_id2"){
+		return inih_OK;
 	}
 	else {
 		std::cerr << "Unknown section: " << section_str << std::endl;
 		return inih_ERR;
 	}
 
-	// parse key/value
-	std::string register_name(name);
-	uint16_t reg_value = strtol(value, NULL, 0);
-
-	// handle ICR0
-	if (register_name == "ICR0"){
-		//std::cout << "ICR0 :" << std::hex << reg_value << std::endl;
-		self->spi_transfer(ARCADIA_WR_ICR0, reg_value, chip_id, NULL);
-		return inih_OK;
-	}
-
-	// if not ICR0, lookup regname
-	auto search = registers_map.find(name);
-	if (search == registers_map.end()){
-		std::cerr << "Warning: invalid conf key found: " << name << std::endl;
-		return inih_ERR;
-	}
-
-	// write reg
-	arcadia_gcr_param const& param = search->second;
-	self->register_address_array[param.word_address] |=
-		(reg_value & param.mask) << param.offset;
-
-	//std::cout << "id: " << chip_id << " reg: " << param.word_address << " val: " <<
-	//	std::hex << self->register_address_array[param.word_address] << std::endl;
-
-	self->write_register(chip_id, param.word_address,
-			self->register_address_array[param.word_address]);
-
 	return inih_OK;
 }
 
 
-int DAQBoard_comm::spi_transfer(ARCADIA_command command, uint16_t payload, uint8_t chip_id,
-		uint32_t* rcv_data){
+int DAQBoard_comm::spi_transfer(ARCADIA_command command, uint16_t payload,
+		std::string chip_id, uint32_t* rcv_data){
 
-	const uhal::Node& SPI_CTRL_Node = lHW.getNode(master_ids[chip_id] + ".CTRL");
-	const uhal::Node& SPI_TxRx_node = lHW.getNode(master_ids[chip_id] + ".TxRx0");
+	const uhal::Node& SPI_CTRL_Node = lHW.getNode("spi_" + chip_id + ".CTRL");
+	const uhal::Node& SPI_TxRx_node = lHW.getNode("spi_" + chip_id + ".TxRx0");
 
 	// prepare CTRL register
 	SPI_CTRL_Node.write(SPI_ASS | SPI_RX_NEG | SPI_CHAR_LEN);
@@ -168,10 +165,7 @@ int DAQBoard_comm::spi_transfer(ARCADIA_command command, uint16_t payload, uint8
 }
 
 
-int DAQBoard_comm::read_register(uint8_t chip_id, uint16_t addr, uint16_t* data){
-
-	if (chip_id>2)
-		return -1;
+int DAQBoard_comm::read_register(std::string chip_id, uint16_t addr, uint16_t* data){
 
 	if (spi_unavaiable[chip_id])
 		return -1;
@@ -190,10 +184,7 @@ int DAQBoard_comm::read_register(uint8_t chip_id, uint16_t addr, uint16_t* data)
 }
 
 
-int DAQBoard_comm::write_register(uint8_t chip_id, uint16_t addr, uint16_t data){
-
-	if (chip_id>2)
-		return -1;
+int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t data){
 
 	if (spi_unavaiable[chip_id])
 		return -1;
@@ -207,9 +198,9 @@ int DAQBoard_comm::write_register(uint8_t chip_id, uint16_t addr, uint16_t data)
 }
 
 
-int DAQBoard_comm::read_fpga_register(const std::string reg_handle, uint32_t* data){
+int DAQBoard_comm::read_fpga_register(const std::string reg_handler, uint32_t* data){
 
-	const uhal::Node& reg_Node = lHW.getNode("regfile." + reg_handle);
+	const uhal::Node& reg_Node = lHW.getNode(reg_handler);
 
 	uhal::ValWord<uint32_t> reg_data = reg_Node.read();
 	lHW.dispatch();
@@ -220,9 +211,9 @@ int DAQBoard_comm::read_fpga_register(const std::string reg_handle, uint32_t* da
 }
 
 
-int DAQBoard_comm::write_fpga_register(const std::string reg_handle, uint32_t data){
+int DAQBoard_comm::write_fpga_register(const std::string reg_handler, uint32_t data){
 
-	const uhal::Node& reg_Node = lHW.getNode("regfile." + reg_handle);
+	const uhal::Node& reg_Node = lHW.getNode(reg_handler);
 
 	reg_Node.write(data);
 	lHW.dispatch();

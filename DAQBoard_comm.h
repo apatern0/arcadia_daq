@@ -27,10 +27,10 @@ typedef struct {
 	int mask;
 	int offset;
 	int default_value;
-} arcadia_gcr_param;
+} arcadia_reg_param;
 
 const int register_address_max = 12;
-static std::map <std::string, arcadia_gcr_param> registers_map = {
+static std::map <std::string, arcadia_reg_param> GCR_map = {
 	{"READOUT_CLK_DIVIDER",       {0, 0x000f,  0, 3}},
 	{"TIMING_CLK_DIVIDER",        {0, 0x000f,  4, 8}},
 	{"MAX_READS",                 {0, 0x000f,  8, 8}},
@@ -70,8 +70,9 @@ private:
 	uhal::ConnectionManager ConnectionMgr;
 	uhal::HwInterface lHW;
 
-	std::array<bool, 3> spi_unavaiable = {false};
-	const std::array<const std::string, 3> master_ids = {"spi_id0", "spi_id1", "spi_id2"};
+	std::map<std::string, bool> spi_unavaiable = {
+		{"id0", false}, {"id1", false}, {"id2", false}
+	};
 
 	std::array<std::thread, 3> data_reader;
 	std::array<std::atomic_bool, 3> run_daq_flag;
@@ -87,12 +88,12 @@ public:
 	DAQBoard_comm(std::string connection_xml_path, std::string device_id, bool verbose=false);
 	int read_conf(std::string fname);
 
-	int spi_transfer(ARCADIA_command command, uint16_t payload, uint8_t chip_id, uint32_t* rcv_data);
-	int read_register(uint8_t chip_id, uint16_t addr, uint16_t* data);
-	int write_register(uint8_t chip_id, uint16_t addr, uint16_t data);
+	int spi_transfer(ARCADIA_command command, uint16_t payload, std::string chip_id, uint32_t* rcv_data);
+	int read_register(std::string chip_id, uint16_t addr, uint16_t* data);
+	int write_register(std::string chip_id, uint16_t addr, uint16_t data);
 
-	int read_fpga_register(std::string reg_handle, uint32_t* data);
-	int write_fpga_register(std::string reg_handle, uint32_t data);
+	int read_fpga_register(std::string reg_handler, uint32_t* data);
+	int write_fpga_register(std::string reg_handler, uint32_t data);
 	void dump_DAQBoard_reg();
 
 	int start_daq(uint8_t chip_id, std::string fname = "dout");
