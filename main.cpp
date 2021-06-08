@@ -40,6 +40,8 @@ int main(int argc, char** argv){
 	}
 
 	if (verbose_cnt < 2)
+		uhal::disableLogging();
+	else
 		uhal::setLogLevelTo(uhal::Error());
 
 	bool daq_verbose_flag = (verbose_cnt >= 1);
