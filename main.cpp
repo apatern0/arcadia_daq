@@ -26,7 +26,9 @@ int main(int argc, char** argv){
 			cxxopts::value<std::vector<std::string>>()->implicit_value("id0"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
-		("v,verbose", "Verbose output, can be specified multiple times")
+		("controller", "select arcadia_controller register",
+			cxxopts::value<std::string>()->default_value(""))
+		("v,verbose",  "Verbose output, can be specified multiple times")
 	;
 
 	auto cxxopts_res = options.parse(argc, argv);
@@ -102,6 +104,29 @@ int main(int argc, char** argv){
 
 	if (cxxopts_res.count("dump-regs"))
 		DAQBoard_mng.dump_DAQBoard_reg();
+
+
+	if (cxxopts_res.count("controller")){
+
+		std::string chipid = cxxopts_res["chip"].as<std::string>();
+		auto option = cxxopts_res["controller"].as<std::string>();
+		std::string controllerid = "controller_" + chipid;
+
+		auto search = ctrl_cmd_map.find(option);
+		if (search == ctrl_cmd_map.end()){
+			std::cerr << "Invalid command: " << option << std::endl;
+			return -1;
+		}
+
+		arcadia_reg_param const& param = search->second;
+
+		uint32_t command = (param.word_address<<20);
+		DAQBoard_mng.write_fpga_register(controllerid, command);
+		uint32_t value = 0;
+		DAQBoard_mng.read_fpga_register(controllerid, &value);
+		std::cout << "response: " << std::hex << value << std::endl;
+
+	}
 
 
 	if (cxxopts_res.count("daq")){
