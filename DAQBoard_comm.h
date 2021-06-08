@@ -99,13 +99,13 @@ private:
 	uhal::ConnectionManager ConnectionMgr;
 	uhal::HwInterface lHW;
 
-	struct readout_thread{
+	struct chip_struct {
 		std::thread dataread_thread;
 		std::atomic_bool run_flag;
 		bool spi_unavaiable;
-		readout_thread() : run_flag({false}), spi_unavaiable(false) {}
+		chip_struct() : run_flag({false}), spi_unavaiable(false) {}
 	};
-	std::map<std::string, readout_thread*> chip_stuctmap;
+	std::map<std::string, chip_struct*> chip_stuctmap;
 
 	//TODO: actually support multiple chips..
 	std::array<uint16_t, GCR_address_max> GCR_address_array;

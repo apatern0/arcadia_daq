@@ -27,8 +27,7 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 
 	// init chipstructs
 	for (std::string id: {"id0", "id1", "id2"}){
-		readout_thread chipstruct();
-		chip_stuctmap.insert(std::make_pair(id, new readout_thread()));
+		chip_stuctmap.insert(std::make_pair(id, new chip_struct()));
 	}
 
 	// init spi controller
