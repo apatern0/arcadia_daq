@@ -23,7 +23,7 @@ int main(int argc, char** argv){
 		("w,write",   "Write \"arg\" in selected register", cxxopts::value<uint32_t>())
 		("dump-regs", "Dump DAQ Board register")
 		("q,daq",     "Start DAQ, with optional comma-separated list of chip to read",
-			cxxopts::value<std::vector<int>>()->implicit_value("0"))
+			cxxopts::value<std::vector<std::string>>()->implicit_value("id0"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
 		("v,verbose", "Verbose output, can be specified multiple times")
@@ -106,7 +106,7 @@ int main(int argc, char** argv){
 
 	if (cxxopts_res.count("daq")){
 
-		auto chipid_list = cxxopts_res["daq"].as<std::vector<int>>();
+		auto chipid_list = cxxopts_res["daq"].as<std::vector<std::string>>();
 		auto daq_mode = cxxopts_res["daq-mode"].as<uint16_t>();
 
 		std::cout << "Press enter to stop" << std::endl;
@@ -115,15 +115,15 @@ int main(int argc, char** argv){
 			DAQBoard_mng.start_daq(chipid);
 
 		usleep(500000);
-		DAQBoard_mng.write_fpga_register("mode", daq_mode);
+		DAQBoard_mng.write_fpga_register("regfile.mode", daq_mode);
 
 		std::cin.get();
 
-		DAQBoard_mng.write_fpga_register("mode", 0x0);
+		DAQBoard_mng.write_fpga_register("regfile.mode", 0x0);
 		usleep(100000);
 
-		for(uint8_t chipid=0; chipid<3; chipid++)
-			DAQBoard_mng.stop_daq(chipid);
+		for (std::string id: {"id0", "id1", "id2"})
+			DAQBoard_mng.stop_daq(id);
 
 	}
 

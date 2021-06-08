@@ -25,9 +25,11 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 		lHW(ConnectionMgr.getDevice(device_str))
 {
 
-	// init flags
-	for (auto &x: run_daq_flag)
-		x = false;
+	// init chipstructs
+	for (std::string id: {"id0", "id1", "id2"}){
+		readout_thread chipstruct();
+		chip_stuctmap.insert(std::make_pair(id, new readout_thread()));
+	}
 
 	// init spi controller
 	for (std::string id: {"id0", "id1", "id2"}){
@@ -40,7 +42,7 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 			lHW.dispatch();
 		}
 		catch(...){
-			spi_unavaiable[id] = true;
+			chip_stuctmap[id]->spi_unavaiable = true;
 			std::cerr << "SPI core " << spi_id << " configuration fail" << std::endl;
 		}
 
@@ -184,7 +186,7 @@ int DAQBoard_comm::spi_transfer(ARCADIA_command command, uint16_t payload,
 
 int DAQBoard_comm::read_register(std::string chip_id, uint16_t addr, uint16_t* data){
 
-	if (spi_unavaiable[chip_id])
+	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		return -1;
 
 	int gcr_address = addr | 0x2000;
@@ -203,7 +205,7 @@ int DAQBoard_comm::read_register(std::string chip_id, uint16_t addr, uint16_t* d
 
 int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t data){
 
-	if (spi_unavaiable[chip_id])
+	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		return -1;
 
 	int gcr_address = addr | 0x2000;
@@ -252,13 +254,12 @@ void DAQBoard_comm::dump_DAQBoard_reg(){
 }
 
 
-void DAQBoard_comm::daq_loop(const std::string fname, uint8_t chip_id){
+void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id){
 
-	const std::string id_str = std::to_string(chip_id);
-	const std::string filename = fname + id_str + ".raw";
+	const std::string filename = fname + chip_id + ".raw";
 
-	const uhal::Node& Node_fifo_occupancy = lHW.getNode("fifo_id" + id_str + ".occupancy");
-	const uhal::Node& Node_fifo_data = lHW.getNode("fifo_id" + id_str + ".data");
+	const uhal::Node& Node_fifo_occupancy = lHW.getNode("fifo_" + chip_id + ".occupancy");
+	const uhal::Node& Node_fifo_data = lHW.getNode("fifo_" + chip_id + ".data");
 	std::ofstream outstrm(filename, std::ios::out | std::ios::trunc | std::ios::binary);
 
 	if (!outstrm.is_open())
@@ -269,7 +270,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, uint8_t chip_id){
 	double acc = 0.0;
 	const double alpha = 1.0/max_iter;
 
-	while (run_daq_flag[chip_id]){
+	while (chip_stuctmap[chip_id]->run_flag){
 		uhal::ValWord<uint32_t> fifo_occupancy = Node_fifo_occupancy.read();
 		lHW.dispatch();
 
@@ -281,7 +282,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, uint8_t chip_id){
 			iter++;
 			max_occ = std::max(max_occ, occupancy);
 			if (iter == max_iter){
-				std::cout << (int)chip_id << ": " << (int)acc <<  " peak: " << max_occ << std::endl;
+				std::cout << chip_id << ": " << (int)acc <<  " peak: " << max_occ << std::endl;
 				iter=0;
 				max_occ=0;
 			}
@@ -308,30 +309,36 @@ void DAQBoard_comm::daq_loop(const std::string fname, uint8_t chip_id){
 }
 
 
-int DAQBoard_comm::start_daq(uint8_t chip_id, std::string fname){
+int DAQBoard_comm::start_daq(std::string chip_id, std::string fname){
 
-	if (chip_id > 2)
+	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
+		std::cerr << "can't start thread, unknown id: " << chip_id << std::endl;
 		return -1;
+	}
 
-	run_daq_flag[chip_id] = true;
-	data_reader[chip_id] = std::thread(&DAQBoard_comm::daq_loop, this, fname, chip_id);
-	std::cout << (int)chip_id << ": Data read thread started" << std::endl;
+	chip_stuctmap[chip_id]->run_flag = true;
+	chip_stuctmap[chip_id]->dataread_thread =
+		std::thread(&DAQBoard_comm::daq_loop, this, fname, chip_id);
+
+	std::cout << chip_id << ": Data read thread started" << std::endl;
 
 	return 0;
 }
 
 
-int DAQBoard_comm::stop_daq(uint8_t chip_id){
+int DAQBoard_comm::stop_daq(std::string chip_id){
 
-	if (chip_id > 2)
+	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
+		std::cerr << "can't stop thread, unknown id: " << chip_id << std::endl;
 		return -1;
+	}
 
-	if (!run_daq_flag[chip_id])
+	if (chip_stuctmap[chip_id]->run_flag == false)
 		return 0;
 
-	run_daq_flag[chip_id] = false;
-	data_reader[chip_id].join();
-	std::cout << (int)chip_id << ": Data read thread stopped" << std::endl;
+	chip_stuctmap[chip_id]->run_flag = false;
+	chip_stuctmap[chip_id]->dataread_thread.join();
+	std::cout << chip_id << ": Data read thread stopped" << std::endl;
 
 	return 0;
 }

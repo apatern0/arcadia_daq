@@ -22,12 +22,12 @@ enum ARCADIA_command {
 	ARCADIA_RD_ICR1 = 0xc
 };
 
-typedef struct {
+struct arcadia_reg_param{
 	int word_address;
 	int mask;
 	int offset;
 	int default_value;
-} arcadia_reg_param;
+};
 
 const int GCR_address_max = 12;
 static const std::map <std::string, arcadia_reg_param> GCR_map = {
@@ -99,12 +99,13 @@ private:
 	uhal::ConnectionManager ConnectionMgr;
 	uhal::HwInterface lHW;
 
-	std::map<std::string, bool> spi_unavaiable = {
-		{"id0", false}, {"id1", false}, {"id2", false}
+	struct readout_thread{
+		std::thread dataread_thread;
+		std::atomic_bool run_flag;
+		bool spi_unavaiable;
+		readout_thread() : run_flag({false}), spi_unavaiable(false) {}
 	};
-
-	std::array<std::thread, 3> data_reader;
-	std::array<std::atomic_bool, 3> run_daq_flag;
+	std::map<std::string, readout_thread*> chip_stuctmap;
 
 	//TODO: actually support multiple chips..
 	std::array<uint16_t, GCR_address_max> GCR_address_array;
@@ -112,7 +113,7 @@ private:
 	static int conf_handler(void* user, const char* section, const char* name,
 			const char* value);
 
-	void daq_loop(const std::string fname, uint8_t chip_id);
+	void daq_loop(const std::string fname, std::string chip_id);
 
 public:
 
@@ -127,8 +128,8 @@ public:
 	int write_fpga_register(std::string reg_handler, uint32_t data);
 	void dump_DAQBoard_reg();
 
-	int start_daq(uint8_t chip_id, std::string fname = "dout");
-	int stop_daq(uint8_t chip_id);
+	int start_daq(std::string chip_id, std::string fname = "dout");
+	int stop_daq(std::string chip_id);
 
 };
 #endif
