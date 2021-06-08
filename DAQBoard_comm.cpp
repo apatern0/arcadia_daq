@@ -53,9 +53,12 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 int DAQBoard_comm::read_conf(std::string fname){
 
 	// init register array with default values
-	for(auto const& reg: GCR_map){
-		arcadia_reg_param const& param = reg.second;
-		GCR_address_array[param.word_address] |= (param.default_value << param.offset);
+	for (auto id : {"id0", "id1", "id2"}){
+		for(auto const& reg: GCR_map){
+			arcadia_reg_param const& param = reg.second;
+			chip_stuctmap[id]->GCR_address_array[param.word_address] |=
+				(param.default_value << param.offset);
+		}
 	}
 
 	// run parser
@@ -99,14 +102,16 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 
 		// write reg
 		arcadia_reg_param const& param = search->second;
-		self->GCR_address_array[param.word_address] |=
+		self->chip_stuctmap[section_str]->GCR_address_array[param.word_address] |=
 			(reg_value & param.mask) << param.offset;
 
-		//std::cout << "id: " << section_str << " reg: " << param.word_address << " val: " <<
-		//	std::hex << self->GCR_address_array[param.word_address] << std::endl;
+		//std::cout << "id: " << section_str << " reg: " <<
+		//	param.word_address << " val: " << std::hex <<
+		//	self->chip_stuctmap[section_str]->GCR_address_array[param.word_address]
+		//	<< std::endl;
 
 		self->write_register(section_str, param.word_address,
-				self->GCR_address_array[param.word_address]);
+				self->chip_stuctmap[section_str]->GCR_address_array[param.word_address]);
 
 		return inih_OK;
 	}
@@ -115,16 +120,17 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 
 		auto search = ctrl_cmd_map.find(name);
 		if (search == ctrl_cmd_map.end()){
-			std::cerr << "Warning: invalid conf key found: " << name << std::endl;
+			//std::cerr << "Warning: invalid conf key found: " << name << std::endl;
 			return inih_ERR;
 		}
 
+		std::string chip_id = section_str.substr(11,3);
 		arcadia_reg_param const& param = search->second;
-		self->ctrl_address_array[param.word_address] |=
+		self->chip_stuctmap[chip_id]->ctrl_address_array[param.word_address] |=
 			(reg_value & param.mask) << param.offset;
 
 		uint32_t command = (param.word_address<<20) |
-			self->ctrl_address_array[param.word_address];
+			self->chip_stuctmap[chip_id]->ctrl_address_array[param.word_address];
 
 		//std::cout << "controller cmd:" << std::hex << command << std::endl;
 		self->write_fpga_register(section_str, command);

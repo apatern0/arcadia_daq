@@ -105,13 +105,15 @@ private:
 		std::thread dataread_thread;
 		std::atomic_bool run_flag;
 		bool spi_unavaiable;
+
+		std::array<uint16_t, GCR_address_max> GCR_address_array;
+		std::array<uint16_t, ctrl_address_max> ctrl_address_array;
+
 		chip_struct() : run_flag({false}), spi_unavaiable(false) {}
 	};
+
 	std::map<std::string, chip_struct*> chip_stuctmap;
 
-	//TODO: actually support multiple chips..
-	std::array<uint16_t, GCR_address_max> GCR_address_array;
-	std::array<uint16_t, ctrl_address_max> ctrl_address_array;
 	static int conf_handler(void* user, const char* section, const char* name,
 			const char* value);
 
