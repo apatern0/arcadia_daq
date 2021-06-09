@@ -62,7 +62,7 @@ static const std::map <std::string, arcadia_reg_param> GCR_map = {
 };
 
 
-const int ctrl_address_max = 10;
+const int ctrl_address_max = 13;
 static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
 	{"resetIDELAYTCTRL",    {0x01, 0x0001,  0, 0}},
 	{"resetISERDES",        {0x02, 0x0001,  0, 0}},

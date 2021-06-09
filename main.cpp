@@ -73,7 +73,7 @@ int main(int argc, char** argv){
 			DAQBoard_mng.write_fpga_register(reg, value);
 			std::cout << "write reg: " << reg << " val: 0x" << std::hex << value << std::endl;
 		}
-		else {
+		else if (!cxxopts_res.count("controller")) {
 			std::cout << "no register selected" << std::endl;
 			return -1;
 		}
@@ -117,12 +117,18 @@ int main(int argc, char** argv){
 		auto search = ctrl_cmd_map.find(option);
 		if (search == ctrl_cmd_map.end()){
 			std::cerr << "Invalid command: " << option << std::endl;
+			for (cmd = ctrl_cmd_map.begin(); cmd != ctrl_cmd_map.end(); cmd++)
+				std::cout << cmd.first << std::endl;
 			return -1;
 		}
 
+		uint16_t extra_data = 0;
+		if (cxxopts_res.count("write"))
+			extra_data = cxxopts_res["write"].as<uint32_t>();
+
 		arcadia_reg_param const& param = search->second;
 
-		uint32_t command = (param.word_address<<20);
+		uint32_t command = (param.word_address<<20) | extra_data;
 		DAQBoard_mng.write_fpga_register(controllerid, command);
 		uint32_t value = 0;
 		DAQBoard_mng.read_fpga_register(controllerid, &value);

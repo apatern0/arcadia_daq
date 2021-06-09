@@ -58,11 +58,11 @@ read grc: 16 val: 0xdead
 
 Run daq, adding the `-v` option to any of the following commands will print some very rough statistics to stdout:
 ```
-$ ./arca`dia-cli --daq
-(daq started for chip 0. Data will bi saved to dout0.raw)
+$ ./arcadia-cli --daq
+(daq started for chip id0. Data will bi saved to dout0.raw)
 
-$ ./arcadia-cli --daq=0,1,2
-(daq started for chip 0,1 and 2. Data will bi saved to dout{0,1,2}.raw)
+$ ./arcadia-cli --daq=id0,id1,id2
+(daq started for chip 0,1 and 2. Data will bi saved to dout{id0,id1,id2}.raw)
 
 $ ./arcadia-cli --daq --daq-mode 10
 (daq started on chip 0, data generator enabled with divider set to 10 (~25 Mbps))
