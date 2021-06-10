@@ -117,8 +117,8 @@ int main(int argc, char** argv){
 		auto search = ctrl_cmd_map.find(option);
 		if (search == ctrl_cmd_map.end()){
 			std::cerr << "Invalid command: " << option << std::endl;
-			for (cmd = ctrl_cmd_map.begin(); cmd != ctrl_cmd_map.end(); cmd++)
-				std::cout << cmd.first << std::endl;
+			for (auto cmd = ctrl_cmd_map.begin(); cmd != ctrl_cmd_map.end(); cmd++)
+				std::cout << cmd->first << std::endl;
 			return -1;
 		}
 
