@@ -22,7 +22,7 @@ int main(int argc, char** argv){
 		("r,read",    "Read selected register")
 		("w,write",   "Write \"arg\" in selected register", cxxopts::value<uint32_t>())
 		("pulse",     "Send a test pulse to [chip id]",
-			cxxopts::value<std::string>()->default_value("id0"))
+			cxxopts::value<std::string>()->implicit_value("id0"))
 		("dump-regs", "Dump DAQ Board register")
 		("q,daq",     "Start DAQ, with optional comma-separated list of chip to read",
 			cxxopts::value<std::vector<std::string>>()->implicit_value("id0"))
