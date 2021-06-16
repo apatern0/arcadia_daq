@@ -246,6 +246,34 @@ int DAQBoard_comm::write_fpga_register(const std::string reg_handler, uint32_t d
 }
 
 
+int DAQBoard_comm::send_pulse(const std::string chip_id){
+
+	uint16_t id = 0;
+	if (chip_id == "id0"){
+		id = 0;
+	}
+	else if (chip_id == "id1"){
+		id = 1;
+	}
+	else if (chip_id == "id2"){
+		id = 2;
+	}
+	else {
+		std::cerr << "No such id: " << chip_id << std::endl;
+		return -1;
+	}
+
+	if (chip_stuctmap[chip_id]->spi_unavaiable)
+		std::cout << "WARNING: chip not configured" << std::endl;
+
+	const uhal::Node& pulser_Node = lHW.getNode("pulser");
+	pulser_Node.write(id);
+	lHW.dispatch();
+
+	return 0;
+}
+
+
 void DAQBoard_comm::dump_DAQBoard_reg(){
 
 	for(auto reg: lHW.getNodes("regfile\\..*")){

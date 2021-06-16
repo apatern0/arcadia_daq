@@ -21,6 +21,8 @@ int main(int argc, char** argv){
 		("reg",       "Select fpga register", cxxopts::value<std::string>())
 		("r,read",    "Read selected register")
 		("w,write",   "Write \"arg\" in selected register", cxxopts::value<uint32_t>())
+		("pulse",     "Send a test pulse to [chip id]",
+			cxxopts::value<std::string>()->default_value("id0"))
 		("dump-regs", "Dump DAQ Board register")
 		("q,daq",     "Start DAQ, with optional comma-separated list of chip to read",
 			cxxopts::value<std::vector<std::string>>()->implicit_value("id0"))
@@ -103,6 +105,8 @@ int main(int argc, char** argv){
 
 	}
 
+	if(cxxopts_res.count("pulse"))
+		DAQBoard_mng.send_pulse(cxxopts_res["pulse"].as<std::string>());
 
 	if (cxxopts_res.count("dump-regs"))
 		DAQBoard_mng.dump_DAQBoard_reg();

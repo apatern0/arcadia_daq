@@ -130,6 +130,7 @@ public:
 
 	int read_fpga_register(std::string reg_handler, uint32_t* data);
 	int write_fpga_register(std::string reg_handler, uint32_t data);
+	int send_pulse(const std::string chip_id);
 	void dump_DAQBoard_reg();
 
 	int start_daq(std::string chip_id, std::string fname = "dout");
