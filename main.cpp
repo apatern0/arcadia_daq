@@ -29,7 +29,7 @@ int main(int argc, char** argv){
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
 		("controller", "select arcadia_controller register",
-			cxxopts::value<std::string>()->default_value(""))
+			cxxopts::value<std::string>()->implicit_value(""))
 		("v,verbose",  "Verbose output, can be specified multiple times")
 	;
 
@@ -121,6 +121,7 @@ int main(int argc, char** argv){
 		auto search = ctrl_cmd_map.find(option);
 		if (search == ctrl_cmd_map.end()){
 			std::cerr << "Invalid command: " << option << std::endl;
+			std::cerr << "Available commands: " << std::endl;
 			for (auto cmd = ctrl_cmd_map.begin(); cmd != ctrl_cmd_map.end(); cmd++)
 				std::cout << cmd->first << std::endl;
 			return -1;
