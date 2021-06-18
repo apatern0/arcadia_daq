@@ -126,6 +126,7 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 
 		std::string chip_id = section_str.substr(11,3);
 		arcadia_reg_param const& param = search->second;
+
 		self->chip_stuctmap[chip_id]->ctrl_address_array[param.word_address] |=
 			(reg_value & param.mask) << param.offset;
 

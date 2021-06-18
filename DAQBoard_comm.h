@@ -109,7 +109,7 @@ private:
 		std::array<uint16_t, GCR_address_max> GCR_address_array;
 		std::array<uint16_t, ctrl_address_max> ctrl_address_array;
 
-		chip_struct() : run_flag({false}), spi_unavaiable(false) {}
+		chip_struct() : run_flag({false}), spi_unavaiable(false), ctrl_address_array({0}) {}
 	};
 
 	std::map<std::string, chip_struct*> chip_stuctmap;
