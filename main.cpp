@@ -29,7 +29,7 @@ int main(int argc, char** argv){
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
 		("controller", "select arcadia_controller register",
-			cxxopts::value<std::string>()->implicit_value(""))
+			cxxopts::value<std::string>())
 		("v,verbose",  "Verbose output, can be specified multiple times")
 	;
 
