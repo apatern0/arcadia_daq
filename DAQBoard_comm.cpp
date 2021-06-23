@@ -267,6 +267,7 @@ int DAQBoard_comm::send_pulse(const std::string chip_id){
 	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		std::cout << "WARNING: chip not configured" << std::endl;
 
+	std::cout << "pulsing id" << id << std::endl;
 	const uhal::Node& pulser_Node = lHW.getNode("pulser");
 	pulser_Node.write(id);
 	lHW.dispatch();
