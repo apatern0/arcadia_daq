@@ -54,9 +54,9 @@
   <node id="controller_id2" address="0x00090000" permission="rw"/>
 
   <node id="pulser" address="0x00070000">
-    <node id="id0" address="0x00000001" permission="rw"/>
-    <node id="id1" address="0x00000002" permission="rw"/>
-    <node id="id2" address="0x00000003" permission="rw"/>
+    <node id="id0" address="0x00000000" permission="rw"/>
+    <node id="id1" address="0x00000001" permission="rw"/>
+    <node id="id2" address="0x00000002" permission="rw"/>
   </node>
 
 </node>
