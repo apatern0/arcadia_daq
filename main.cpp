@@ -127,13 +127,13 @@ int main(int argc, char** argv){
 			return -1;
 		}
 
-		uint16_t extra_data = 0;
+		uint32_t extra_data = 0;
 		if (cxxopts_res.count("write"))
 			extra_data = cxxopts_res["write"].as<uint32_t>();
 
 		arcadia_reg_param const& param = search->second;
 
-		uint32_t command = (param.word_address<<20) | extra_data;
+		uint32_t command = (param.word_address<<20) | (extra_data&0xfffff);
 		DAQBoard_mng.write_fpga_register(controllerid, command);
 		uint32_t value = 0;
 		DAQBoard_mng.read_fpga_register(controllerid, &value);
