@@ -140,6 +140,9 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 		//std::cout << "controller cmd:" << std::hex << command << std::endl;
 		self->write_fpga_register(section_str, command);
 
+		// empty the response fifo, but don't care about response
+		self->read_fpga_register(section_str, NULL);
+
 		return inih_OK;
 	}
 	else {
@@ -234,7 +237,8 @@ int DAQBoard_comm::read_fpga_register(const std::string reg_handler, uint32_t* d
 	uhal::ValWord<uint32_t> reg_data = reg_Node.read();
 	lHW.dispatch();
 
-	*data = reg_data.value();
+	if (data)
+		*data = reg_data.value();
 
 	return 0;
 }
