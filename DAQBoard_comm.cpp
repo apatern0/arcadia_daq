@@ -79,12 +79,13 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 	// cast *this pointer
 	DAQBoard_comm* self = static_cast<DAQBoard_comm*>(user);
 
-	// parse section name and key/value
+	// parse section name/reg
 	std::string section_str(section);
 	std::string register_name(name);
-	uint16_t reg_value = strtol(value, NULL, 0);
 
 	if (section_str == "id0" || section_str == "id1" || section_str == "id2"){
+
+		uint16_t reg_value = strtol(value, NULL, 0);
 
 		// handle ICR0
 		if (register_name == "ICR0"){
@@ -117,6 +118,9 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 	}
 	else if (section_str == "controller_id0" || section_str == "controller_id1" ||
 			section_str == "controller_id2"){
+
+		uint32_t reg_value = strtol(value, NULL, 0);
+		reg_value &= 0xfffff;
 
 		auto search = ctrl_cmd_map.find(name);
 		if (search == ctrl_cmd_map.end()){
