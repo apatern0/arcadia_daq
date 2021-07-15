@@ -50,7 +50,6 @@ struct arcadia_reg_param{
 	{"BIAS"#X"_LDO_EN",     {14+((X)*3), 0x0001, 15,  1}},
 
 
-const int GCR_address_max = 12;
 static const std::map <std::string, arcadia_reg_param> GCR_map = {
 	{"READOUT_CLK_DIVIDER",       {0, 0x000f,  0, 3}},
 	{"TIMING_CLK_DIVIDER",        {0, 0x000f,  4, 8}},
@@ -100,7 +99,6 @@ static const std::map <std::string, arcadia_reg_param> GCR_map = {
 };
 
 
-const int ctrl_address_max = 13;
 static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
 	{"resetIDELAYTCTRL",    {0x01, 0x0001,  0, 0}},
 	{"resetISERDES",        {0x02, 0x0001,  0, 0}},
@@ -144,10 +142,11 @@ private:
 		std::atomic_bool run_flag;
 		bool spi_unavaiable;
 
-		std::array<uint16_t, GCR_address_max> GCR_address_array;
-		std::array<uint32_t, ctrl_address_max> ctrl_address_array;
+		std::vector<uint16_t> GCR_address_array;
+		std::vector<uint32_t> ctrl_address_array;
 
-		chip_struct() : run_flag({false}), spi_unavaiable(false), ctrl_address_array({0}) {}
+		chip_struct() : run_flag({false}), spi_unavaiable(false),
+			GCR_address_array(GCR_map.size()), ctrl_address_array(ctrl_cmd_map.size()) {}
 	};
 
 	std::map<std::string, chip_struct*> chip_stuctmap;

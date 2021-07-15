@@ -124,7 +124,7 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 
 		auto search = ctrl_cmd_map.find(name);
 		if (search == ctrl_cmd_map.end()){
-			//std::cerr << "Warning: invalid conf key found: " << name << std::endl;
+			std::cerr << "Warning: invalid conf key found: " << name << std::endl;
 			return inih_ERR;
 		}
 
