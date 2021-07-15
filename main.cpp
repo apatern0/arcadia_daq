@@ -17,7 +17,9 @@ int main(int argc, char** argv){
 		("config",    "load registers .conf file", cxxopts::value<std::string>())
 		("c,chip",    "Chip id, one of [id0, id1, id2]",
 			cxxopts::value<std::string>()->default_value("id0"))
-		("gcr",       "Select GCR", cxxopts::value<uint16_t>())
+		("gcr",       "Select GCR <num>", cxxopts::value<uint16_t>())
+		("ICR0",      "Select ICR0")
+		("ICR1",      "Select ICR1")
 		("reg",       "Select fpga register", cxxopts::value<std::string>())
 		("r,read",    "Read selected register")
 		("w,write",   "Write \"arg\" in selected register", cxxopts::value<uint32_t>())
@@ -74,6 +76,14 @@ int main(int argc, char** argv){
 			uint32_t value = cxxopts_res["write"].as<uint32_t>();
 			DAQBoard_mng.write_fpga_register(reg, value);
 			std::cout << "write reg: " << reg << " val: 0x" << std::hex << value << std::endl;
+		}
+		else if (cxxopts_res.count("ICR0") || cxxopts_res.count("ICR1")){
+			uint32_t value = cxxopts_res["write"].as<uint32_t>();
+			std::string icrstr = "000";
+			if (cxxopts_res.count("ICR0")) icrstr = "ICR0";
+			else if (cxxopts_res.count("ICR1")) icrstr = "ICR1";
+			std::string chipid = cxxopts_res["chip"].as<std::string>();
+			DAQBoard_mng.write_icr(chipid, icrstr, value);
 		}
 		else if (!cxxopts_res.count("controller")) {
 			std::cout << "no register selected" << std::endl;

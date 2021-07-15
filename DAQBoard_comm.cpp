@@ -88,9 +88,9 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 		uint16_t reg_value = strtol(value, NULL, 0);
 
 		// handle ICR0
-		if (register_name == "ICR0"){
-			//std::cout << "ICR0 :" << std::hex << reg_value << std::endl;
-			self->spi_transfer(ARCADIA_WR_ICR0, reg_value, section_str, NULL);
+		if (register_name == "ICR0" || register_name == "IRC1"){
+			//std::cout << register_name << " : " << std::hex << reg_value << std::endl;
+			self->write_icr(section_str, register_name, reg_value);
 			return inih_OK;
 		}
 
@@ -225,6 +225,33 @@ int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t d
 	int res;
 	res = spi_transfer(ARCADIA_WR_PNTR, gcr_address, chip_id, NULL);
 	res = spi_transfer(ARCADIA_WR_DATA, data, chip_id, NULL);
+
+	return res;
+}
+
+
+int DAQBoard_comm::write_icr(std::string chip_id, std::string icr_reg, uint16_t value){
+
+	if (chip_stuctmap[chip_id]->spi_unavaiable)
+		return -1;
+
+	if (icr_reg != "ICR0" && icr_reg != "ICR1"){
+		std::cerr << "No such reg: " << icr_reg << std::endl;
+		return -1;
+	}
+
+	int res = -1;
+
+	if (icr_reg == "ICR0"){
+		res = spi_transfer(ARCADIA_WR_ICR0, value, chip_id, NULL);
+	}
+	else if (icr_reg == "ICR1"){
+		res = spi_transfer(ARCADIA_WR_ICR1, value, chip_id, NULL);
+	}
+	else {
+		std::cerr << "No such reg: " << icr_reg << std::endl;
+		res = -1;
+	}
 
 	return res;
 }

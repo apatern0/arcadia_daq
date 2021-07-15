@@ -127,6 +127,7 @@ public:
 	int spi_transfer(ARCADIA_command command, uint16_t payload, std::string chip_id, uint32_t* rcv_data);
 	int read_register(std::string chip_id, uint16_t addr, uint16_t* data);
 	int write_register(std::string chip_id, uint16_t addr, uint16_t data);
+	int write_icr(std::string chip_id, std::string icr_reg, uint16_t value);
 
 	int read_fpga_register(std::string reg_handler, uint32_t* data);
 	int write_fpga_register(std::string reg_handler, uint32_t data);
