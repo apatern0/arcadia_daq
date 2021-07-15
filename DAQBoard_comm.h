@@ -29,6 +29,27 @@ struct arcadia_reg_param{
 	int default_value;
 };
 
+
+#define BIASX_REGMAP(X) \
+	{"BIAS"#X"_VCAL_LO",    {12+((X)*3), 0x0001,  0,  0}}, \
+	{"BIAS"#X"_VCAL_HI",    {12, 0x000f,  1, 15}}, \
+	{"BIAS"#X"_VCASD",      {12, 0x0007,  5,  4}}, \
+	{"BIAS"#X"_VCASP",      {12, 0x000f,  8,  4}}, \
+	{"BIAS"#X"_ISF_VINREF", {12, 0x0007, 12,  7}}, \
+	{"BIAS"#X"_IOTA",       {12, 0x0001, 15,  0}}, \
+	{"BIAS"#X"_VCASN",      {12, 0x003f,  0, 33}}, \
+	{"BIAS"#X"_ICLIP",      {13, 0x0003,  6,  1}}, \
+	{"BIAS"#X"_IBIAS",      {13, 0x0003,  8,  2}}, \
+	{"BIAS"#X"_VREF_LDO",   {13, 0x0003, 10,  1}}, \
+	{"BIAS"#X"_IFB",        {13, 0x0003, 12,  2}}, \
+	{"BIAS"#X"_ISF",        {13, 0x0003, 14,  2}}, \
+	{"BIAS"#X"_BGR_MEAN",   {14, 0x000f,  0,  7}}, \
+	{"BIAS"#X"_BGR_SLOPE",  {14, 0x000f,  4,  7}}, \
+	{"BIAS"#X"_VINREF",     {14, 0x001f,  8,  7}}, \
+	{"BIAS"#X"_ID",         {14, 0x0003, 13,  1}}, \
+	{"BIAS"#X"_LDO_EN",     {14, 0x0001, 15,  1}},
+
+
 const int GCR_address_max = 12;
 static const std::map <std::string, arcadia_reg_param> GCR_map = {
 	{"READOUT_CLK_DIVIDER",       {0, 0x000f,  0, 3}},
@@ -59,6 +80,23 @@ static const std::map <std::string, arcadia_reg_param> GCR_map = {
 	{"HELPER_SECCFG_CFGDATA",     {10, 0x0003, 14, 0x0001}},
 	{"HELPER_SECCFG_PRSTOP",      {11, 0x007f,  0, 0x0000}},
 	{"HELPER_SECCFG_PIXELSELECT", {11, 0x001f,  7, 0x001f}},
+
+	BIASX_REGMAP(0)
+	BIASX_REGMAP(1)
+	BIASX_REGMAP(2)
+	BIASX_REGMAP(3)
+	BIASX_REGMAP(4)
+	BIASX_REGMAP(5)
+	BIASX_REGMAP(6)
+	BIASX_REGMAP(7)
+	BIASX_REGMAP(8)
+	BIASX_REGMAP(9)
+	BIASX_REGMAP(10)
+	BIASX_REGMAP(11)
+	BIASX_REGMAP(12)
+	BIASX_REGMAP(13)
+	BIASX_REGMAP(14)
+	BIASX_REGMAP(15)
 };
 
 
