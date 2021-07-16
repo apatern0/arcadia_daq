@@ -206,7 +206,7 @@ int DAQBoard_comm::read_register(std::string chip_id, uint16_t addr, uint16_t* d
 	int res;
 	uint32_t reg_data;
 
-	res = spi_transfer(ARCADIA_RD_PNTR, gcr_address, chip_id, NULL);
+	res = spi_transfer(ARCADIA_WR_PNTR, gcr_address, chip_id, NULL);
 	res = spi_transfer(ARCADIA_RD_DATA, 0, chip_id, &reg_data);
 
 	if (data != NULL)
