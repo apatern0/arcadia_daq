@@ -140,12 +140,13 @@ private:
 	struct chip_struct {
 		std::thread dataread_thread;
 		std::atomic_bool run_flag;
+		bool daq_timedout;
 		bool spi_unavaiable;
 
 		std::vector<uint16_t> GCR_address_array;
 		std::vector<uint32_t> ctrl_address_array;
 
-		chip_struct() : run_flag({false}), spi_unavaiable(false),
+		chip_struct() : run_flag({false}), daq_timedout(false), spi_unavaiable(false),
 			GCR_address_array(GCR_map.size()), ctrl_address_array(ctrl_cmd_map.size()) {}
 	};
 
@@ -154,7 +155,8 @@ private:
 	static int conf_handler(void* user, const char* section, const char* name,
 			const char* value);
 
-	void daq_loop(const std::string fname, std::string chip_id, uint32_t stopafter);
+	void daq_loop(const std::string fname, std::string chip_id,
+			uint32_t stopafter, uint32_t timeout);
 
 public:
 
@@ -173,7 +175,8 @@ public:
 	void dump_DAQBoard_reg();
 	int reset_fifo(std::string chip_id);
 
-	int start_daq(std::string chip_id, uint32_t stopafter, std::string fname = "dout");
+	int start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout,
+			std::string fname = "dout");
 	int stop_daq(std::string chip_id);
 	int wait_daq_finished();
 

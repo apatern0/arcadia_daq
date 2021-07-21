@@ -2,6 +2,8 @@
 #include <fstream>
 #include <unistd.h>
 #include <stdexcept>
+#include <chrono>
+
 
 #include "ini.h"
 #include "DAQBoard_comm.h"
@@ -338,7 +340,7 @@ void DAQBoard_comm::dump_DAQBoard_reg(){
 
 
 void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
-		uint32_t stopafter){
+		uint32_t stopafter, uint32_t timeout){
 
 	const std::string filename = fname + chip_id + ".raw";
 
@@ -349,6 +351,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 	if (!outstrm.is_open())
 		throw std::runtime_error("Can't open file for write");
 
+	std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
 	uint32_t packet_count = 0;
 
 	const int max_iter = 5000;
@@ -374,6 +377,19 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 			}
 		}
 
+		//timeout
+		if (timeout != 0){
+			std::chrono::steady_clock::time_point time_now = std::chrono::steady_clock::now();
+			uint32_t elapsed_secs =
+				std::chrono::duration_cast<std::chrono::seconds>(time_now-start_time).count();
+
+			if (elapsed_secs > timeout){
+				chip_stuctmap[chip_id]->run_flag = false;
+				if (stopafter !=0 && packet_count < stopafter)
+					chip_stuctmap[chip_id]->daq_timedout = true;
+			}
+		}
+
 		if (occupancy == 0)
 			continue;
 
@@ -392,6 +408,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 
 		outstrm.write((char*)data.value().data(), data.size()*4);
 
+		// stop if maxpkg found
 		if (stopafter != 0 && packet_count >= stopafter)
 			chip_stuctmap[chip_id]->run_flag = false;
 
@@ -401,7 +418,8 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 }
 
 
-int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, std::string fname){
+int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout,
+		std::string fname){
 
 	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
 		std::cerr << "can't start thread, unknown id: " << chip_id << std::endl;
@@ -410,7 +428,7 @@ int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, std::strin
 
 	chip_stuctmap[chip_id]->run_flag = true;
 	chip_stuctmap[chip_id]->dataread_thread =
-		std::thread(&DAQBoard_comm::daq_loop, this, fname, chip_id, stopafter);
+		std::thread(&DAQBoard_comm::daq_loop, this, fname, chip_id, stopafter, timeout);
 
 	std::cout << chip_id << ": Data read thread started" << std::endl;
 
@@ -425,9 +443,6 @@ int DAQBoard_comm::stop_daq(std::string chip_id){
 		return -1;
 	}
 
-	if (chip_stuctmap[chip_id]->run_flag == false)
-		return 0;
-
 	chip_stuctmap[chip_id]->run_flag = false;
 
 	return 0;
@@ -436,16 +451,23 @@ int DAQBoard_comm::stop_daq(std::string chip_id){
 
 int DAQBoard_comm::wait_daq_finished(){
 
+	int retcode = 0;
+
 	for (auto const& ch: chip_stuctmap){
 
-		if (ch.second->run_flag && ch.second->dataread_thread.joinable()){
-			ch.second->dataread_thread.join();
-			std::cout << ch.first << ": Data read thread stopped" << std::endl;
+		if (!ch.second->run_flag || !ch.second->dataread_thread.joinable())
+			continue;
+
+		ch.second->dataread_thread.join();
+		std::cout << ch.first << ": Data read thread stopped" << std::endl;
+		if (ch.second->daq_timedout){
+			std::cout << "    (thread timed out)" << std::endl;
+			retcode = -1;
 		}
 
 	}
 
-	return 0;
+	return retcode;
 }
 
 

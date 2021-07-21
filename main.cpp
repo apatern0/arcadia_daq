@@ -48,6 +48,8 @@ int main(int argc, char** argv){
 			cxxopts::value<std::vector<std::string>>()->implicit_value("id0"))
 		("maxpkts",   "Max number of packet to read from a chip before exiting",
 			cxxopts::value<uint32_t>()->default_value("0"))
+		("maxtime",   "Stop DAQ after [maxtime] seconds",
+			cxxopts::value<uint32_t>()->default_value("0"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
 		("controller", "select arcadia_controller register",
@@ -190,25 +192,24 @@ int main(int argc, char** argv){
 		auto chipid_list = cxxopts_res["daq"].as<std::vector<std::string>>();
 		auto daq_mode = cxxopts_res["daq-mode"].as<uint16_t>();
 		auto maxpkts = cxxopts_res["maxpkts"].as<uint32_t>();
+		auto maxtime = cxxopts_res["maxtime"].as<uint32_t>();
 
 		std::cout << "starting DAQ, Ctrl-C to stop..." << std::endl;
 
 		for(auto chip_id: chipid_list)
-			DAQBoard_mng.start_daq(chip_id, maxpkts);
+			DAQBoard_mng.start_daq(chip_id, maxpkts, maxtime);
 
 		if (daq_mode != 0){
 			usleep(500000);
 			DAQBoard_mng.write_fpga_register("regfile.mode", daq_mode);
 		}
 
-		DAQBoard_mng.wait_daq_finished();
+		int ret = DAQBoard_mng.wait_daq_finished();
 
 		if (daq_mode != 0)
 			DAQBoard_mng.write_fpga_register("regfile.mode", 0x0);
 
-		//for (std::string id: {"id0", "id1", "id2"})
-		//	DAQBoard_mng.stop_daq(id);
-
+		return ret;
 	}
 
 	return 0;
