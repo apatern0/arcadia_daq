@@ -484,7 +484,7 @@ int DAQBoard_comm::reset_fifo(std::string chip_id){
 	}
 
 	const uhal::Node& node_fifo_reset = lHW.getNode("fifo_" + chip_id + ".reset");
-	node_fifo_reset.write(0);
+	node_fifo_reset.write(0xffffffff);
 
 	std::cout << chip_id << " : reset sent" << std::endl;
 
