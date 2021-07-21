@@ -1,8 +1,24 @@
 #include <iostream>
 #include <unistd.h>
+#include <csignal>
 
 #include "cxxopts.hpp"
 #include "DAQBoard_comm.h"
+
+
+// for sign handler
+DAQBoard_comm *DAQBoard_mng_ptr;
+
+void signal_handler(int signal){
+
+	if (signal != SIGINT)
+		return;
+
+	std::cout << "interrupting DAQ..." << std::endl;
+	for (std::string id: {"id0", "id1", "id2"})
+		DAQBoard_mng_ptr->stop_daq(id);
+}
+
 
 int main(int argc, char** argv){
 
@@ -30,6 +46,8 @@ int main(int argc, char** argv){
 		("reset-fifo", "Reset readout fifos")
 		("q,daq",     "Start DAQ, with optional comma-separated list of chip to read",
 			cxxopts::value<std::vector<std::string>>()->implicit_value("id0"))
+		("maxpkts",   "Max number of packet to read from a chip before exiting",
+			cxxopts::value<uint32_t>()->default_value("0"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
 		("controller", "select arcadia_controller register",
@@ -58,6 +76,12 @@ int main(int argc, char** argv){
 			daq_verbose_flag
 	);
 
+	//install signal handler
+	DAQBoard_mng_ptr = &DAQBoard_mng;
+	std::signal(SIGINT, signal_handler);
+
+
+	///////////////// parse /////////////////////
 
 	if (cxxopts_res.count("config")){
 		std::string fname =  cxxopts_res["config"].as<std::string>();
@@ -165,22 +189,25 @@ int main(int argc, char** argv){
 
 		auto chipid_list = cxxopts_res["daq"].as<std::vector<std::string>>();
 		auto daq_mode = cxxopts_res["daq-mode"].as<uint16_t>();
+		auto maxpkts = cxxopts_res["maxpkts"].as<uint32_t>();
 
-		std::cout << "Press enter to stop" << std::endl;
+		std::cout << "starting DAQ, Ctrl-C to stop..." << std::endl;
 
 		for(auto chip_id: chipid_list)
-			DAQBoard_mng.start_daq(chip_id);
+			DAQBoard_mng.start_daq(chip_id, maxpkts);
 
-		usleep(500000);
-		DAQBoard_mng.write_fpga_register("regfile.mode", daq_mode);
+		if (daq_mode != 0){
+			usleep(500000);
+			DAQBoard_mng.write_fpga_register("regfile.mode", daq_mode);
+		}
 
-		std::cin.get();
+		DAQBoard_mng.wait_daq_finished();
 
-		DAQBoard_mng.write_fpga_register("regfile.mode", 0x0);
-		usleep(100000);
+		if (daq_mode != 0)
+			DAQBoard_mng.write_fpga_register("regfile.mode", 0x0);
 
-		for (std::string id: {"id0", "id1", "id2"})
-			DAQBoard_mng.stop_daq(id);
+		//for (std::string id: {"id0", "id1", "id2"})
+		//	DAQBoard_mng.stop_daq(id);
 
 	}
 

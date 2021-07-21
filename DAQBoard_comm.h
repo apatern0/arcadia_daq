@@ -154,7 +154,7 @@ private:
 	static int conf_handler(void* user, const char* section, const char* name,
 			const char* value);
 
-	void daq_loop(const std::string fname, std::string chip_id);
+	void daq_loop(const std::string fname, std::string chip_id, uint32_t stopafter);
 
 public:
 
@@ -173,8 +173,9 @@ public:
 	void dump_DAQBoard_reg();
 	int reset_fifo(std::string chip_id);
 
-	int start_daq(std::string chip_id, std::string fname = "dout");
+	int start_daq(std::string chip_id, uint32_t stopafter, std::string fname = "dout");
 	int stop_daq(std::string chip_id);
+	int wait_daq_finished();
 
 };
 #endif
