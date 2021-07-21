@@ -425,3 +425,24 @@ int DAQBoard_comm::stop_daq(std::string chip_id){
 
 	return 0;
 }
+
+
+int DAQBoard_comm::reset_fifo(std::string chip_id){
+
+	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
+		std::cerr << "nu such id: " << chip_id << std::endl;
+		return -1;
+	}
+
+	if (chip_stuctmap[chip_id]->run_flag){
+		std::cerr << "DAQ Thread running, refusing to reset fifo" << std::endl;
+		return -1;
+	}
+
+	const uhal::Node& node_fifo_reset = lHW.getNode("fifo_" + chip_id + ".reset");
+	node_fifo_reset.write(0);
+
+	std::cout << chip_id << " : reset sent" << std::endl;
+
+	return 0;
+}

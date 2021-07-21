@@ -171,6 +171,7 @@ public:
 	int write_fpga_register(std::string reg_handler, uint32_t data);
 	int send_pulse(const std::string chip_id);
 	void dump_DAQBoard_reg();
+	int reset_fifo(std::string chip_id);
 
 	int start_daq(std::string chip_id, std::string fname = "dout");
 	int stop_daq(std::string chip_id);

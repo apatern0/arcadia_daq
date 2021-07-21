@@ -27,6 +27,7 @@ int main(int argc, char** argv){
 		("pulse",     "Send a test pulse to [chip id]",
 			cxxopts::value<std::string>()->implicit_value("id0"))
 		("dump-regs", "Dump DAQ Board register")
+		("reset-fifo", "Reset readout fifos")
 		("q,daq",     "Start DAQ, with optional comma-separated list of chip to read",
 			cxxopts::value<std::vector<std::string>>()->implicit_value("id0"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
@@ -49,6 +50,7 @@ int main(int argc, char** argv){
 	else
 		uhal::setLogLevelTo(uhal::Error());
 
+	// init DAQBoard_comm class instace
 	bool daq_verbose_flag = (verbose_cnt >= 1);
 	DAQBoard_comm DAQBoard_mng(
 			cxxopts_res["conn"].as<std::string>(),
@@ -153,6 +155,11 @@ int main(int argc, char** argv){
 
 	}
 
+	if (cxxopts_res.count("reset-fifo")){
+		std::cout << "resetting readout FIFOs" << std::endl;
+		for (std::string id: {"id0", "id1", "id2"})
+			DAQBoard_mng.reset_fifo(id);
+	}
 
 	if (cxxopts_res.count("daq")){
 
