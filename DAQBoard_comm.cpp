@@ -209,12 +209,21 @@ int DAQBoard_comm::read_register(std::string chip_id, uint16_t addr, uint16_t* d
 	uint32_t reg_data;
 
 	res = spi_transfer(ARCADIA_WR_PNTR, gcr_address, chip_id, NULL);
+	if (res){
+		std::cerr << "Failed to set WR_PNTR" << std::endl;
+		return res;
+	}
+
 	res = spi_transfer(ARCADIA_RD_DATA, 0, chip_id, &reg_data);
+	if (res){
+		std::cerr << "Failed to read data" << std::endl;
+		return res;
+	}
 
 	if (data != NULL)
 		*data = (reg_data&0xffff);
 
-	return res;
+	return 0;
 }
 
 
@@ -225,8 +234,18 @@ int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t d
 
 	int gcr_address = addr | 0x2000;
 	int res;
+
 	res = spi_transfer(ARCADIA_WR_PNTR, gcr_address, chip_id, NULL);
+	if (res){
+		std::cerr << "Failed to set WR_PNTR" << std::endl;
+		return res;
+	}
+
 	res = spi_transfer(ARCADIA_WR_DATA, data, chip_id, NULL);
+	if (res){
+		std::cerr << "Failed to read data" << std::endl;
+		return res;
+	}
 
 	return res;
 }
@@ -245,13 +264,17 @@ int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_
 
 	arcadia_reg_param const& param = search->second;
 
+	int res;
 	uint16_t reg_data;
-	read_register(chip_id, param.word_address, &reg_data);
+
+	res = read_register(chip_id, param.word_address, &reg_data);
+	if (res)
+		return res;
 
 	reg_data |= ((value & param.mask) << param.offset);
-	write_register(chip_id, param.word_address, reg_data);
+	res = write_register(chip_id, param.word_address, reg_data);
 
-	return 0;
+	return res;
 }
 
 

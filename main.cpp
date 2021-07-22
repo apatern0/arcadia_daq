@@ -39,7 +39,7 @@ int main(int argc, char** argv){
 		("ICR1",      "Select ICR1")
 		("reg",       "Select fpga register", cxxopts::value<std::string>())
 		("r,read",    "Read selected register")
-		("w,write",   "Write \"arg\" in selected register", cxxopts::value<uint32_t>())
+		("w,write",   "Write [arg] in selected register", cxxopts::value<uint32_t>())
 		("pulse",     "Send a test pulse to [chip id]",
 			cxxopts::value<std::string>()->implicit_value("id0"))
 		("dump-regs", "Dump DAQ Board register")
@@ -48,7 +48,7 @@ int main(int argc, char** argv){
 			cxxopts::value<std::vector<std::string>>()->implicit_value("id0"))
 		("maxpkts",   "Max number of packet to read from a chip before exiting",
 			cxxopts::value<uint32_t>()->default_value("0"))
-		("maxtime",   "Stop DAQ after [maxtime] seconds",
+		("maxtime",   "Stop DAQ after [arg] seconds",
 			cxxopts::value<uint32_t>()->default_value("0"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
