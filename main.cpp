@@ -113,7 +113,7 @@ int main(int argc, char** argv){
 		}
 		else if (cxxopts_res.count("gcrpar")){
 			std::string gcrpar = cxxopts_res["gcrpar"].as<std::string>();
-			std::cout << "write grcpar: " << gcrpar << " val: 0x" << std::hex << value
+			std::cout << "write gcrpar: " << gcrpar << " val: 0x" << std::hex << value
 				<< std::endl;
 			DAQBoard_mng.write_gcrpar(chipid, gcrpar, value);
 		}

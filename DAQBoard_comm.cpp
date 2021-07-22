@@ -103,8 +103,11 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 			return inih_ERR;
 		}
 
-		// write reg
 		arcadia_reg_param const& param = search->second;
+		// clear parameter bits in register
+		self->chip_stuctmap[section_str]->GCR_address_array[param.word_address] &=
+			~(param.mask << param.offset);
+		// set paramter bits in register
 		self->chip_stuctmap[section_str]->GCR_address_array[param.word_address] |=
 			(reg_value & param.mask) << param.offset;
 
@@ -113,6 +116,7 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 		//	self->chip_stuctmap[section_str]->GCR_address_array[param.word_address]
 		//	<< std::endl;
 
+		// write reg
 		self->write_register(section_str, param.word_address,
 				self->chip_stuctmap[section_str]->GCR_address_array[param.word_address]);
 
@@ -271,7 +275,11 @@ int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_
 	if (res)
 		return res;
 
+	// clear paramer bits
+	reg_data &= ~(param.mask << param.offset);
+	// set parameter bits
 	reg_data |= ((value & param.mask) << param.offset);
+	// write
 	res = write_register(chip_id, param.word_address, reg_data);
 
 	return res;
