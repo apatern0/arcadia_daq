@@ -55,6 +55,7 @@ int main(int argc, char** argv){
 		("controller", "select arcadia_controller register",
 			cxxopts::value<std::string>())
 		("v,verbose",  "Verbose output, can be specified multiple times")
+		("calibrate",  "Attemp detection of best value for the SERDES delay taps")
 	;
 
 	auto cxxopts_res = options.parse(argc, argv);
@@ -90,7 +91,14 @@ int main(int argc, char** argv){
 		DAQBoard_mng.read_conf(fname);
 	}
 
+
 	std::string chipid = cxxopts_res["chip"].as<std::string>();
+
+	if (cxxopts_res.count("calibrate")){
+		std::cout << "start calibration.." << std::endl;
+		DAQBoard_mng.cal_serdes_idealy("controller_" + chipid);
+	}
+
 
 	if (cxxopts_res.count("write")){
 			uint32_t value = cxxopts_res["write"].as<uint32_t>();
@@ -155,37 +163,36 @@ int main(int argc, char** argv){
 
 	if (cxxopts_res.count("controller")){
 
-		auto option = cxxopts_res["controller"].as<std::string>();
+		auto command = cxxopts_res["controller"].as<std::string>();
 		std::string controllerid = "controller_" + chipid;
-
-		auto search = ctrl_cmd_map.find(option);
-		if (search == ctrl_cmd_map.end()){
-			std::cerr << "Invalid command: " << option << std::endl;
-			std::cerr << "Available commands: " << std::endl;
-			for (auto cmd = ctrl_cmd_map.begin(); cmd != ctrl_cmd_map.end(); cmd++)
-				std::cout << cmd->first << std::endl;
-			return -1;
-		}
 
 		uint32_t extra_data = 0;
 		if (cxxopts_res.count("write"))
 			extra_data = cxxopts_res["write"].as<uint32_t>();
 
-		arcadia_reg_param const& param = search->second;
+		uint32_t resp;
+		int ret = DAQBoard_mng.send_controller_command(controllerid,
+				command, extra_data, &resp);
 
-		uint32_t command = (param.word_address<<20) | (extra_data&0xfffff);
-		DAQBoard_mng.write_fpga_register(controllerid, command);
-		uint32_t value = 0;
-		DAQBoard_mng.read_fpga_register(controllerid, &value);
-		std::cout << "response: " << std::hex << value << std::endl;
+		if (ret == 0){
+			std::cout << "response: " << std::hex << resp << std::endl;
+		}
+
+		if (ret == -1){
+			std::cerr << "Available commands: " << std::endl;
+			for (auto cmd = ctrl_cmd_map.begin(); cmd != ctrl_cmd_map.end(); cmd++)
+				std::cout << cmd->first << std::endl;
+		}
 
 	}
+
 
 	if (cxxopts_res.count("reset-fifo")){
 		std::cout << "resetting readout FIFOs" << std::endl;
 		for (std::string id: {"id0", "id1", "id2"})
 			DAQBoard_mng.reset_fifo(id);
 	}
+
 
 	if (cxxopts_res.count("daq")){
 

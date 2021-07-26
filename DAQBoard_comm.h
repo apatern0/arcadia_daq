@@ -168,6 +168,8 @@ public:
 	int write_register(std::string chip_id, uint16_t addr, uint16_t data);
 	int write_icr(std::string chip_id, std::string icr_reg, uint16_t data);
 	int write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value);
+	int send_controller_command(const std::string controller_id, const std::string cmd,
+			uint32_t arg, uint32_t* resp);
 
 	int read_fpga_register(std::string reg_handler, uint32_t* data);
 	int write_fpga_register(std::string reg_handler, uint32_t data);
@@ -179,6 +181,8 @@ public:
 			std::string fname = "dout");
 	int stop_daq(std::string chip_id);
 	int wait_daq_finished();
+
+	int cal_serdes_idealy(std::string contrller_id);
 
 };
 #endif

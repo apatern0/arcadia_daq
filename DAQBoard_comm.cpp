@@ -126,28 +126,7 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 			section_str == "controller_id2"){
 
 		uint32_t reg_value = strtol(value, NULL, 0);
-		reg_value &= 0xfffff;
-
-		auto search = ctrl_cmd_map.find(name);
-		if (search == ctrl_cmd_map.end()){
-			std::cerr << "Warning: invalid conf key found: " << name << std::endl;
-			return inih_ERR;
-		}
-
-		std::string chip_id = section_str.substr(11,3);
-		arcadia_reg_param const& param = search->second;
-
-		self->chip_stuctmap[chip_id]->ctrl_address_array[param.word_address] |=
-			(reg_value & param.mask) << param.offset;
-
-		uint32_t command = (param.word_address<<20) |
-			self->chip_stuctmap[chip_id]->ctrl_address_array[param.word_address];
-
-		//std::cout << "controller cmd:" << std::hex << command << std::endl;
-		self->write_fpga_register(section_str, command);
-
-		// empty the response fifo, but don't care about response
-		self->read_fpga_register(section_str, NULL);
+		self->send_controller_command(section_str, name, reg_value, NULL);
 
 		return inih_OK;
 	}
@@ -338,6 +317,42 @@ int DAQBoard_comm::write_fpga_register(const std::string reg_handler, uint32_t d
 }
 
 
+int DAQBoard_comm::send_controller_command(const std::string controller_id,
+		const std::string cmd, uint32_t arg, uint32_t* resp){
+
+	auto search = ctrl_cmd_map.find(cmd);
+
+	if (search == ctrl_cmd_map.end()){
+		std::cerr << "Invalid command: " << cmd << std::endl;
+		return -1;
+	}
+
+	std::string chip_id = controller_id.substr(11,3);
+	arcadia_reg_param const& param = search->second;
+
+	// clear field
+	chip_stuctmap[chip_id]->ctrl_address_array[param.word_address] &=
+		~(param.mask << param.offset);
+	// set field
+	chip_stuctmap[chip_id]->ctrl_address_array[param.word_address] |=
+		(arg & param.mask) << param.offset;
+
+	uint32_t command = (param.word_address<<20) |
+		chip_stuctmap[chip_id]->ctrl_address_array[param.word_address];
+
+	write_fpga_register(controller_id, command);
+
+	// always read response to free fifo
+	uint32_t value;
+	read_fpga_register(controller_id, &value);
+
+	if (resp)
+		*resp = value;
+
+	return 0;
+}
+
+
 int DAQBoard_comm::send_pulse(const std::string chip_id){
 
 	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
@@ -518,6 +533,72 @@ int DAQBoard_comm::reset_fifo(std::string chip_id){
 	node_fifo_reset.write(0xffffffff);
 
 	std::cout << chip_id << " : reset sent" << std::endl;
+
+	return 0;
+}
+
+
+int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
+
+	const int TAP_VALUES = 32;
+	const int LANES = 16;
+
+	uint16_t calibration_array[LANES][TAP_VALUES] = {0};
+
+	send_controller_command(controller_id, "resetISERDES", 1, NULL);
+	send_controller_command(controller_id, "resetIDELAYTCTRL", 1, NULL);
+
+	// try all possible taps_values
+	for(int tap_val=0; tap_val <= TAP_VALUES; tap_val++){
+
+		send_controller_command(controller_id, "resetCounters", 1, NULL);
+
+		// set delay taps to tap_val
+		for(int tap = 0; tap <= LANES; tap++){
+			std::stringstream ss;
+			ss << "setIDELAYTap" << std::hex << tap;
+			send_controller_command(controller_id, ss.str(), tap_val, NULL);
+		}
+
+		send_controller_command(controller_id, "syncTX", 0xffff, NULL);
+
+		uint32_t status;
+		//send_controller_command(controller_id, "readTxState", 0, &status);
+		//TODO:verify status
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+		for(int lane = 0; lane <= LANES; lane++){
+			send_controller_command(controller_id, "read8b10bErrCounters", 0, &status);
+			calibration_array[lane][tap_val] = status&0xffff;
+		}
+
+	}
+
+
+	uint32_t best_taps[LANES];
+	for (int lane = 0; lane <= LANES; lane++){
+		int avg = 0;
+		int num = 0;
+
+		for(int tap_val=0; tap_val <= TAP_VALUES; tap_val++){
+			std::cout << calibration_array[lane][tap_val] << "  ";
+			if (calibration_array[lane][tap_val] == 0){
+				avg += tap_val;
+				num++;
+			}
+		}
+
+		avg /= num;
+		best_taps[lane] = avg;
+
+		std::cout << std::endl;
+	}
+
+
+	for(int lane = 0; lane <= LANES; lane++){
+		std::cout << "setIDELAYTap" << std::hex << lane << "="
+			<< best_taps[lane] << std::endl;
+	}
 
 	return 0;
 }
