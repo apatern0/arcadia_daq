@@ -37,7 +37,7 @@ struct arcadia_reg_param{
 	{"BIAS"#X"_VCASP",      {12+((X)*3), 0x000f,  8,  4}}, \
 	{"BIAS"#X"_ISF_VINREF", {12+((X)*3), 0x0007, 12,  7}}, \
 	{"BIAS"#X"_IOTA",       {12+((X)*3), 0x0001, 15,  0}}, \
-	{"BIAS"#X"_VCASN",      {12+((X)*3), 0x003f,  0, 33}}, \
+	{"BIAS"#X"_VCASN",      {13+((X)*3), 0x003f,  0, 33}}, \
 	{"BIAS"#X"_ICLIP",      {13+((X)*3), 0x0003,  6,  1}}, \
 	{"BIAS"#X"_IBIAS",      {13+((X)*3), 0x0003,  8,  2}}, \
 	{"BIAS"#X"_VREF_LDO",   {13+((X)*3), 0x0003, 10,  1}}, \
