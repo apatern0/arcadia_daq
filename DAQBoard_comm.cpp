@@ -549,12 +549,12 @@ int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 	send_controller_command(controller_id, "resetIDELAYTCTRL", 1, NULL);
 
 	// try all possible taps_values
-	for(int tap_val=0; tap_val <= TAP_VALUES; tap_val++){
+	for(int tap_val=0; tap_val < TAP_VALUES; tap_val++){
 
 		send_controller_command(controller_id, "resetCounters", 1, NULL);
 
 		// set delay taps to tap_val
-		for(int tap = 0; tap <= LANES; tap++){
+		for(int tap = 0; tap < LANES; tap++){
 			std::stringstream ss;
 			ss << "setIDELAYTap" << std::hex << tap;
 			send_controller_command(controller_id, ss.str(), tap_val, NULL);
@@ -567,7 +567,7 @@ int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 		//TODO:verify status
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-		for(int lane = 0; lane <= LANES; lane++){
+		for(int lane = 0; lane < LANES; lane++){
 			send_controller_command(controller_id, "read8b10bErrCounters", 0, &status);
 			calibration_array[lane][tap_val] = status&0xffff;
 		}
@@ -576,11 +576,11 @@ int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 
 
 	uint32_t best_taps[LANES];
-	for (int lane = 0; lane <= LANES; lane++){
+	for (int lane = 0; lane < LANES; lane++){
 		int avg = 0;
 		int num = 0;
 
-		for(int tap_val=0; tap_val <= TAP_VALUES; tap_val++){
+		for(int tap_val=0; tap_val < TAP_VALUES; tap_val++){
 			std::cout << calibration_array[lane][tap_val] << "  ";
 			if (calibration_array[lane][tap_val] == 0){
 				avg += tap_val;
@@ -595,7 +595,7 @@ int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 	}
 
 
-	for(int lane = 0; lane <= LANES; lane++){
+	for(int lane = 0; lane < LANES; lane++){
 		std::cout << "setIDELAYTap" << std::hex << lane << "="
 			<< best_taps[lane] << std::endl;
 	}
