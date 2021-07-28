@@ -147,6 +147,17 @@ int main(int argc, char** argv){
 			DAQBoard_mng.read_fpga_register(reg, &val);
 			std::cout << "read reg: " << reg << " val: 0x" << std::hex << val << std::endl;
 		}
+		else if (cxxopts_res.count("gcrpar")){
+			std::string gcrpar = cxxopts_res["gcrpar"].as<std::string>();
+			uint16_t data;
+			int ret = DAQBoard_mng.read_gcrpar(chipid, gcrpar, &data);
+			if (ret != 0){
+				std::cout << "read error: " << ret  << std::endl;
+				return -1;
+			}
+			std::cout << "gcrpar: " << gcrpar << " val: 0x" << std::hex << data
+				<< std::endl;
+		}
 		else {
 			std::cout << "no register selected" << std::endl;
 			return -1;

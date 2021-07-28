@@ -265,6 +265,33 @@ int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_
 }
 
 
+int DAQBoard_comm::read_gcrpar(std::string chip_id, std::string gcrpar, uint16_t* value){
+
+	if (chip_stuctmap[chip_id]->spi_unavaiable)
+		return -1;
+
+	auto search = GCR_map.find(gcrpar);
+	if (search == GCR_map.end()){
+		std::cerr << "Error: Invalid GCR parameter: " << gcrpar << std::endl;
+		return -1;
+	}
+
+	arcadia_reg_param const& param = search->second;
+
+	uint16_t reg_data;
+	int res = read_register(chip_id, param.word_address, &reg_data);
+	if (res)
+		return res;
+
+	reg_data = (reg_data>>param.offset) & param.mask;
+
+	if (value != NULL)
+		*value = reg_data;
+
+	return res;
+}
+
+
 int DAQBoard_comm::write_icr(std::string chip_id, std::string icr_reg, uint16_t value){
 
 	if (chip_stuctmap[chip_id]->spi_unavaiable)

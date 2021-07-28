@@ -168,6 +168,8 @@ public:
 	int write_register(std::string chip_id, uint16_t addr, uint16_t data);
 	int write_icr(std::string chip_id, std::string icr_reg, uint16_t data);
 	int write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value);
+	int read_gcrpar(std::string chip_id, std::string gcrpar, uint16_t* value);
+
 	int send_controller_command(const std::string controller_id, const std::string cmd,
 			uint32_t arg, uint32_t* resp);
 
