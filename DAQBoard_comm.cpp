@@ -601,8 +601,6 @@ int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 	// try all possible taps_values
 	for(int tap_val=0; tap_val < TAP_VALUES; tap_val++){
 
-		send_controller_command(controller_id, "resetCounters", 1, NULL);
-
 		// set delay taps to tap_val
 		for(int tap = 0; tap < LANES; tap++){
 			std::stringstream ss;
@@ -611,6 +609,7 @@ int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 		}
 
 		send_controller_command(controller_id, "syncTX", 0xffff, NULL);
+		send_controller_command(controller_id, "resetCounters", 1, NULL);
 
 		uint32_t status;
 		//send_controller_command(controller_id, "readTxState", 0, &status);
