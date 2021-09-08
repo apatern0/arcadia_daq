@@ -122,7 +122,7 @@ static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
 	{"doRESET",             {0x08, 0x0001,  0, 0}},
 	{"resetSPI",            {0x09, 0x0001,  0, 0}},
 	{"resetCounters",       {0x10, 0x0001,  0, 0}},
-	{"syncTX",              {0x11, 0x00ff,  0, 0}},
+	{"syncTX",              {0x11, 0xffff,  0, 0}},
 	{"readTxState",         {0x12, 0xffff,  0, 0}},
 	{"read8b10bErrCounters",{0x13, 0x000f,  0, 0}},
 };
@@ -156,7 +156,7 @@ private:
 			const char* value);
 
 	void daq_loop(const std::string fname, std::string chip_id,
-			uint32_t stopafter, uint32_t timeout);
+			uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
 
 public:
 
@@ -167,7 +167,7 @@ public:
 	int read_register(std::string chip_id, uint16_t addr, uint16_t* data);
 	int write_register(std::string chip_id, uint16_t addr, uint16_t data);
 	int write_icr(std::string chip_id, std::string icr_reg, uint16_t data);
-	int write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value);
+	int write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value, uint16_t gcrdef, uint16_t gcrdef_exists);
 	int read_gcrpar(std::string chip_id, std::string gcrpar, uint16_t* value);
 
 	int send_controller_command(const std::string controller_id, const std::string cmd,
@@ -179,7 +179,7 @@ public:
 	void dump_DAQBoard_reg();
 	int reset_fifo(std::string chip_id);
 
-	int start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout,
+	int start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout,
 			std::string fname = "dout");
 	int stop_daq(std::string chip_id);
 	int wait_daq_finished();

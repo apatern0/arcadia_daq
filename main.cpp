@@ -50,6 +50,10 @@ int main(int argc, char** argv){
 			cxxopts::value<uint32_t>()->default_value("0"))
 		("maxtime",   "Stop DAQ after [arg] seconds",
 			cxxopts::value<uint32_t>()->default_value("0"))
+		("gcrdef",   "GCRPAR will use this as a template instead of the readout GCR value",
+			cxxopts::value<uint16_t>()->default_value("0"))
+		("maxidle",   "Stop DAQ after [arg] seconds of idle time",
+			cxxopts::value<uint32_t>()->default_value("0"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
 			cxxopts::value<uint16_t>()->default_value("0"))
 		("controller", "select arcadia_controller register",
@@ -101,12 +105,14 @@ int main(int argc, char** argv){
 
 
 	if (cxxopts_res.count("write")){
-			uint32_t value = cxxopts_res["write"].as<uint32_t>();
+		uint16_t gcrdef = cxxopts_res["gcrdef"].as<uint16_t>();
+		uint16_t gcrdef_exists = cxxopts_res.count("gcrdef");
+		uint32_t value = cxxopts_res["write"].as<uint32_t>();
 
 		if (cxxopts_res.count("gcr")){
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
 			DAQBoard_mng.write_register(chipid, gcr, value);
-			std::cout << "write grc: " << gcr << " val: 0x" << std::hex << value << std::endl;
+			std::cout << "write grc: " << std::dec << gcr << " val: 0x" << std::hex << value << std::endl;
 		}
 		else if (cxxopts_res.count("reg")){
 			std::string reg = cxxopts_res["reg"].as<std::string>();
@@ -123,7 +129,7 @@ int main(int argc, char** argv){
 			std::string gcrpar = cxxopts_res["gcrpar"].as<std::string>();
 			std::cout << "write gcrpar: " << gcrpar << " val: 0x" << std::hex << value
 				<< std::endl;
-			DAQBoard_mng.write_gcrpar(chipid, gcrpar, value);
+			DAQBoard_mng.write_gcrpar(chipid, gcrpar, value, gcrdef, gcrdef_exists);
 		}
 		else if (!cxxopts_res.count("controller")) {
 			std::cout << "no register selected" << std::endl;
@@ -211,11 +217,12 @@ int main(int argc, char** argv){
 		auto daq_mode = cxxopts_res["daq-mode"].as<uint16_t>();
 		auto maxpkts = cxxopts_res["maxpkts"].as<uint32_t>();
 		auto maxtime = cxxopts_res["maxtime"].as<uint32_t>();
+		auto maxidle = cxxopts_res["maxidle"].as<uint32_t>();
 
 		std::cout << "starting DAQ, Ctrl-C to stop..." << std::endl;
 
 		for(auto chip_id: chipid_list)
-			DAQBoard_mng.start_daq(chip_id, maxpkts, maxtime);
+			DAQBoard_mng.start_daq(chip_id, maxpkts, maxtime, maxidle);
 
 		if (daq_mode != 0){
 			usleep(500000);

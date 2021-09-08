@@ -234,7 +234,7 @@ int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t d
 }
 
 
-int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value){
+int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value, uint16_t gcrdef, uint16_t gcrdef_exists){
 
 	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		return -1;
@@ -250,9 +250,13 @@ int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_
 	int res;
 	uint16_t reg_data;
 
-	res = read_register(chip_id, param.word_address, &reg_data);
-	if (res)
-		return res;
+	if(gcrdef_exists)
+		reg_data = gcrdef;
+	else {
+		res = read_register(chip_id, param.word_address, &reg_data);
+		if (res)
+			return res;
+	}
 
 	// clear paramer bits
 	reg_data &= ~(param.mask << param.offset);
@@ -260,6 +264,8 @@ int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_
 	reg_data |= ((value & param.mask) << param.offset);
 	// write
 	res = write_register(chip_id, param.word_address, reg_data);
+
+	std::cout << "write grc: " << std::dec << param.word_address << " val: 0x" << std::hex << reg_data << std::endl;
 
 	return res;
 }
@@ -413,7 +419,7 @@ void DAQBoard_comm::dump_DAQBoard_reg(){
 
 
 void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
-		uint32_t stopafter, uint32_t timeout){
+		uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout){
 
 	const std::string filename = fname + chip_id + ".raw";
 
@@ -425,6 +431,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		throw std::runtime_error("Can't open file for write");
 
 	std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
+	std::chrono::steady_clock::time_point idle_start_time = std::chrono::steady_clock::now();
 	uint32_t packet_count = 0;
 
 	const int max_iter = 5000;
@@ -438,6 +445,9 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 
 		uint32_t occupancy = (fifo_occupancy.value() & 0xffff);
 
+		if (occupancy != 0)
+			idle_start_time = std::chrono::steady_clock::now();
+
 		// print very rough statistics
 		if (verbose) {
 			acc = (alpha * occupancy) + (1.0 - alpha) * acc;
@@ -450,9 +460,22 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 			}
 		}
 
-		//timeout
+		std::chrono::steady_clock::time_point time_now = std::chrono::steady_clock::now();
+		// Idle Timeout
+		if (idle_timeout != 0){
+
+			uint32_t elapsed_secs =
+				std::chrono::duration_cast<std::chrono::seconds>(time_now-idle_start_time).count();
+
+			if (elapsed_secs > idle_timeout){
+				chip_stuctmap[chip_id]->run_flag = false;
+				if (stopafter !=0 && packet_count < stopafter)
+					chip_stuctmap[chip_id]->daq_timedout = true;
+			}
+		}
+
+		// Timeout
 		if (timeout != 0){
-			std::chrono::steady_clock::time_point time_now = std::chrono::steady_clock::now();
 			uint32_t elapsed_secs =
 				std::chrono::duration_cast<std::chrono::seconds>(time_now-start_time).count();
 
@@ -492,7 +515,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 
 
 int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout,
-		std::string fname){
+		uint32_t idle_timeout, std::string fname){
 
 	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
 		std::cerr << "can't start thread, unknown id: " << chip_id << std::endl;
@@ -501,7 +524,7 @@ int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, uint32_t t
 
 	chip_stuctmap[chip_id]->run_flag = true;
 	chip_stuctmap[chip_id]->dataread_thread =
-		std::thread(&DAQBoard_comm::daq_loop, this, fname, chip_id, stopafter, timeout);
+		std::thread(&DAQBoard_comm::daq_loop, this, fname, chip_id, stopafter, timeout, idle_timeout);
 
 	std::cout << chip_id << ": Data read thread started" << std::endl;
 
