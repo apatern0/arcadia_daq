@@ -615,10 +615,16 @@ int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 			}
 		}
 
-		avg /= num;
-		best_taps[lane] = avg;
-
 		std::cout << std::endl;
+
+		if (num == 0){
+			std::cerr << "Error: can't find optimal taps in lane: " << lane << std::endl;
+		}
+		else {
+			avg /= num;
+			best_taps[lane] = avg;
+		}
+
 	}
 
 
