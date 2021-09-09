@@ -143,6 +143,8 @@ private:
 		bool daq_timedout;
 		bool spi_unavaiable;
 
+		std::atomic_uint packet_count;
+
 		std::vector<uint16_t> GCR_address_array;
 		std::vector<uint32_t> ctrl_address_array;
 
@@ -183,6 +185,7 @@ public:
 			std::string fname = "dout");
 	int stop_daq(std::string chip_id);
 	int wait_daq_finished();
+	uint32_t get_packet_count(std::string chip_id);
 
 	int cal_serdes_idealy(std::string contrller_id);
 

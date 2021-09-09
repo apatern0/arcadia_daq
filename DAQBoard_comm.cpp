@@ -432,7 +432,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 
 	std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
 	std::chrono::steady_clock::time_point idle_start_time = std::chrono::steady_clock::now();
-	uint32_t packet_count = 0;
+	chip_stuctmap[chip_id]->packet_count = 0;
 
 	const int max_iter = 5000;
 	uint32_t iter = 0, max_occ = 0;
@@ -469,7 +469,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 
 			if (elapsed_secs > idle_timeout){
 				chip_stuctmap[chip_id]->run_flag = false;
-				if (stopafter !=0 && packet_count < stopafter)
+				if (stopafter !=0 && chip_stuctmap[chip_id]->packet_count < stopafter)
 					chip_stuctmap[chip_id]->daq_timedout = true;
 			}
 		}
@@ -481,7 +481,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 
 			if (elapsed_secs > timeout){
 				chip_stuctmap[chip_id]->run_flag = false;
-				if (stopafter !=0 && packet_count < stopafter)
+				if (stopafter !=0 && chip_stuctmap[chip_id]->packet_count < stopafter)
 					chip_stuctmap[chip_id]->daq_timedout = true;
 			}
 		}
@@ -492,7 +492,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		if (occupancy > Node_fifo_data.getSize())
 			throw std::runtime_error("DAQ board returned an invalid fifo occupancy value");
 
-		packet_count += occupancy;
+		chip_stuctmap[chip_id]->packet_count += occupancy;
 
 		uhal::ValVector<uint32_t> data = Node_fifo_data.readBlock(occupancy);
 		lHW.dispatch();
@@ -505,7 +505,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		outstrm.write((char*)data.value().data(), data.size()*4);
 
 		// stop if maxpkg found
-		if (stopafter != 0 && packet_count >= stopafter)
+		if (stopafter != 0 && chip_stuctmap[chip_id]->packet_count >= stopafter)
 			chip_stuctmap[chip_id]->run_flag = false;
 
 	}
@@ -564,6 +564,17 @@ int DAQBoard_comm::wait_daq_finished(){
 	}
 
 	return retcode;
+}
+
+
+uint32_t DAQBoard_comm::get_packet_count(std::string chip_id){
+
+	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
+		std::cerr << "unknown id: " << chip_id << std::endl;
+		return 0;
+	}
+
+	return chip_stuctmap[chip_id]->packet_count;
 }
 
 
