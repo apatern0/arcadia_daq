@@ -52,6 +52,13 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 }
 
 
+bool DAQBoard_comm::chipid_valid(std::string chip_id){
+
+	return (chip_stuctmap.find(chip_id) != chip_stuctmap.end());
+
+}
+
+
 int DAQBoard_comm::read_conf(std::string fname){
 
 	// init register array with default values
@@ -184,6 +191,11 @@ int DAQBoard_comm::spi_transfer(ARCADIA_command command, uint16_t payload,
 
 int DAQBoard_comm::read_register(std::string chip_id, uint16_t addr, uint16_t* data){
 
+	if (!chipid_valid(chip_id)){
+		std::cerr << "unknown id: " << chip_id << std::endl;
+		return -1;
+	}
+
 	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		return -1;
 
@@ -212,6 +224,11 @@ int DAQBoard_comm::read_register(std::string chip_id, uint16_t addr, uint16_t* d
 
 int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t data){
 
+	if (!chipid_valid(chip_id)){
+		std::cerr << "unknown id: " << chip_id << std::endl;
+		return -1;
+	}
+
 	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		return -1;
 
@@ -235,6 +252,11 @@ int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t d
 
 
 int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value, uint16_t gcrdef, uint16_t gcrdef_exists){
+
+	if (!chipid_valid(chip_id)){
+		std::cerr << "unknown id: " << chip_id << std::endl;
+		return -1;
+	}
 
 	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		return -1;
@@ -273,6 +295,11 @@ int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_
 
 int DAQBoard_comm::read_gcrpar(std::string chip_id, std::string gcrpar, uint16_t* value){
 
+	if (!chipid_valid(chip_id)){
+		std::cerr << "unknown id: " << chip_id << std::endl;
+		return -1;
+	}
+
 	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		return -1;
 
@@ -299,6 +326,11 @@ int DAQBoard_comm::read_gcrpar(std::string chip_id, std::string gcrpar, uint16_t
 
 
 int DAQBoard_comm::write_icr(std::string chip_id, std::string icr_reg, uint16_t value){
+
+	if (!chipid_valid(chip_id)){
+		std::cerr << "unknown id: " << chip_id << std::endl;
+		return -1;
+	}
 
 	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		return -1;
@@ -388,7 +420,7 @@ int DAQBoard_comm::send_controller_command(const std::string controller_id,
 
 int DAQBoard_comm::send_pulse(const std::string chip_id){
 
-	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
+	if (!chipid_valid(chip_id)){
 		std::cerr << "unknown id: " << chip_id << std::endl;
 		return -1;
 	}
@@ -517,7 +549,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout,
 		uint32_t idle_timeout, std::string fname){
 
-	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
+	if (!chipid_valid(chip_id)){
 		std::cerr << "can't start thread, unknown id: " << chip_id << std::endl;
 		return -1;
 	}
@@ -534,7 +566,7 @@ int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, uint32_t t
 
 int DAQBoard_comm::stop_daq(std::string chip_id){
 
-	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
+	if (!chipid_valid(chip_id)){
 		std::cerr << "can't stop thread, unknown id: " << chip_id << std::endl;
 		return -1;
 	}
@@ -569,7 +601,7 @@ int DAQBoard_comm::wait_daq_finished(){
 
 uint32_t DAQBoard_comm::get_packet_count(std::string chip_id){
 
-	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
+	if (!chipid_valid(chip_id)){
 		std::cerr << "unknown id: " << chip_id << std::endl;
 		return 0;
 	}
@@ -580,7 +612,7 @@ uint32_t DAQBoard_comm::get_packet_count(std::string chip_id){
 
 int DAQBoard_comm::reset_fifo(std::string chip_id){
 
-	if (chip_stuctmap.find(chip_id) == chip_stuctmap.end()){
+	if (!chipid_valid(chip_id)){
 		std::cerr << "nu such id: " << chip_id << std::endl;
 		return -1;
 	}

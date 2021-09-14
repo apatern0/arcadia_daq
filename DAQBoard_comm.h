@@ -163,6 +163,8 @@ private:
 public:
 
 	DAQBoard_comm(std::string connection_xml_path, std::string device_id, bool verbose=false);
+
+	bool chipid_valid(std::string chip_id);
 	int read_conf(std::string fname);
 
 	int spi_transfer(ARCADIA_command command, uint16_t payload, std::string chip_id, uint32_t* rcv_data);
