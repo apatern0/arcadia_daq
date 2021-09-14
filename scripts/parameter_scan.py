@@ -55,7 +55,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-c', type=str, dest='conf_file',
             help='configuration file to apply before scan')
-    parser.add_argument('--gcrpar', type=str, dest='gcr_par', required=True,
+    parser.add_argument('--gcrpar', type=str, dest='gcrpar', required=True,
             help='paramter to scan')
 
     parser.add_argument('-s', '--start', type=int, dest='start', default=0,
@@ -68,18 +68,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
 
-
     # Load configuration
-    if args.c and os.path.isfile(args.conf_file):
+    if args.conf_file and os.path.isfile(args.conf_file):
         DAQBoard_comm.read_conf(args.conf_file)
-    elif args.c:
+    elif args.conf_file:
         print('No such file: ', args.conf_file)
         sys.exit(255)
 
     # run scan procedure
     try:
-        hist = run_scan(args.gcrpar, args.start, args.stop, args.step)
-    except:
-        pass
+        hist = run_histo_scan(args.gcrpar, args.start, args.stop, args.step)
+    except Exception as err:
+        print('Error', err)
 
     # TODO: plot hist to pdf
