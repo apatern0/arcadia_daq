@@ -19,7 +19,7 @@ except:
 
 
 
-def run_histo_scan(grcpar, start, stop, step):
+def run_histo_scan(gcrpar, start, stop, step):
 
     #TODO: verify gcrpar is valid
 
@@ -30,8 +30,8 @@ def run_histo_scan(grcpar, start, stop, step):
 
     for i in range(start, stop, step):
 
-        if (DAQBoard_comm.write_grcpar('id0', grcpar, i, 0, 1) != 0):
-            raise Exception('Fail to write grcpar')
+        if (DAQBoard_comm.write_gcrpar('id0', gcrpar, i, 0, 1) != 0):
+            raise Exception('Fail to write gcrpar')
 
         if (DAQBoard_comm.start_daq('id0', 0, 0, 2, 'dout.raw') != 0):
             raise Exception('Fail to start DAQ')
@@ -55,7 +55,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-c', type=str, dest='conf_file',
             help='configuration file to apply before scan')
-    parser.add_argument('--gcrpar', type=str, dest='grc_par', required=True,
+    parser.add_argument('--gcrpar', type=str, dest='gcr_par', required=True,
             help='paramter to scan')
 
     parser.add_argument('-s', '--start', type=int, dest='start', default=0,
@@ -78,7 +78,7 @@ if __name__ == '__main__':
 
     # run scan procedure
     try:
-        hist = run_scan(args.grcpar, args.start, args.stop, args.step)
+        hist = run_scan(args.gcrpar, args.start, args.stop, args.step)
     except:
         pass
 

@@ -265,7 +265,7 @@ int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_
 	// write
 	res = write_register(chip_id, param.word_address, reg_data);
 
-	std::cout << "write grc: " << std::dec << param.word_address << " val: 0x" << std::hex << reg_data << std::endl;
+	std::cout << "write gcr: " << std::dec << param.word_address << " val: 0x" << std::hex << reg_data << std::endl;
 
 	return res;
 }
