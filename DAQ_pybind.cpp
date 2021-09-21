@@ -22,5 +22,6 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 		.def("start_daq", &DAQBoard_comm::start_daq)
 		.def("stop_daq", &DAQBoard_comm::stop_daq)
 		.def("wait_daq_finished", &DAQBoard_comm::wait_daq_finished)
+		.def("get_packet_count", &DAQBoard_comm::get_packet_count)
 		.def("cal_serdes_idealy", &DAQBoard_comm::cal_serdes_idealy);
 }
