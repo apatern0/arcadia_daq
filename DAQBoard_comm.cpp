@@ -660,14 +660,14 @@ int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
 		for(int lane = 0; lane < LANES; lane++){
-			send_controller_command(controller_id, "read8b10bErrCounters", 0, &status);
+			send_controller_command(controller_id, "read8b10bErrCounters", lane*2, &status);
 			calibration_array[lane][tap_val] = status&0xffff;
 		}
 
 	}
 
 
-	uint32_t best_taps[LANES];
+	uint32_t best_taps[LANES] = {0};
 	for (int lane = 0; lane < LANES; lane++){
 		int avg = 0;
 		int num = 0;
