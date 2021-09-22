@@ -127,7 +127,7 @@ int DAQBoard_comm::conf_handler(void* user, const char* section, const char* nam
 		//	<< std::endl;
 
 		// write reg
-		self->write_register(section_str, param.word_address,
+		self->write_gcr(section_str, param.word_address,
 				self->chip_stuctmap[section_str]->GCR_address_array[param.word_address]);
 
 		return inih_OK;
@@ -192,7 +192,7 @@ int DAQBoard_comm::spi_transfer(ARCADIA_command command, uint16_t payload,
 }
 
 
-int DAQBoard_comm::read_register(std::string chip_id, uint16_t addr, uint16_t* data){
+int DAQBoard_comm::read_gcr(std::string chip_id, uint16_t addr, uint16_t* data){
 
 	if (!chipid_valid(chip_id)){
 		std::cerr << "unknown id: " << chip_id << std::endl;
@@ -225,7 +225,7 @@ int DAQBoard_comm::read_register(std::string chip_id, uint16_t addr, uint16_t* d
 }
 
 
-int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t data){
+int DAQBoard_comm::write_gcr(std::string chip_id, uint16_t addr, uint16_t data){
 
 	if (!chipid_valid(chip_id)){
 		std::cerr << "unknown id: " << chip_id << std::endl;
@@ -287,7 +287,7 @@ int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_
 	// set parameter bits
 	reg_data |= ((value & param.mask) << param.offset);
 	// write
-	int res = write_register(chip_id, param.word_address, reg_data);
+	int res = write_gcr(chip_id, param.word_address, reg_data);
 
 	//std::cout << "write gcr: " << std::dec << param.word_address << " val: 0x" << std::hex << reg_data << std::endl;
 
@@ -314,7 +314,7 @@ int DAQBoard_comm::read_gcrpar(std::string chip_id, std::string gcrpar, uint16_t
 	arcadia_reg_param const& param = search->second;
 
 	uint16_t reg_data;
-	int res = read_register(chip_id, param.word_address, &reg_data);
+	int res = read_gcr(chip_id, param.word_address, &reg_data);
 	if (res)
 		return res;
 
@@ -346,7 +346,7 @@ int DAQBoard_comm::reinitialize_gcr(std::string chip_id, uint16_t addr){
 
 	}
 
-	int res = write_register(chip_id, addr, reg_value);
+	int res = write_gcr(chip_id, addr, reg_value);
 	return res;
 }
 
@@ -402,7 +402,7 @@ int DAQBoard_comm::check_consistency(const std::string chip_id){
 		uint16_t reg_data = 0;
 		uint16_t reg_cached = chip_stuctmap[chip_id]->GCR_address_array[addr];
 
-		uint16_t res = read_register(chip_id, addr, &reg_data);
+		uint16_t res = read_gcr(chip_id, addr, &reg_data);
 
 		if (res){
 			std::cerr << "Falied to read gcr: " << addr << std::endl;

@@ -183,8 +183,8 @@ public:
 	int read_conf(std::string fname);
 
 	int spi_transfer(ARCADIA_command command, uint16_t payload, std::string chip_id, uint32_t* rcv_data);
-	int read_register(std::string chip_id, uint16_t addr, uint16_t* data);
-	int write_register(std::string chip_id, uint16_t addr, uint16_t data);
+	int read_gcr(std::string chip_id, uint16_t addr, uint16_t* data);
+	int write_gcr(std::string chip_id, uint16_t addr, uint16_t data);
 	int reinitialize_gcr(std::string chip_id, uint16_t addr);
 	int write_icr(std::string chip_id, std::string icr_reg, uint16_t data);
 	int write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value);

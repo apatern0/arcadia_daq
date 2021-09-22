@@ -107,7 +107,7 @@ int main(int argc, char** argv){
 
 		if (cxxopts_res.count("gcr")){
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
-			DAQBoard_mng.write_register(chipid, gcr, value);
+			DAQBoard_mng.write_gcr(chipid, gcr, value);
 			std::cout << "write grc: " << std::dec << gcr << " val: 0x" << std::hex << value << std::endl;
 		}
 		else if (cxxopts_res.count("reg")){
@@ -140,7 +140,7 @@ int main(int argc, char** argv){
 		if (cxxopts_res.count("gcr")){
 			uint16_t val = 0;
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
-			DAQBoard_mng.read_register(chipid, gcr, &val);
+			DAQBoard_mng.read_gcr(chipid, gcr, &val);
 			std::cout << "read grc: " << gcr << " val: 0x" << std::hex << val << std::endl;
 		}
 		else if(cxxopts_res.count("reg")){
