@@ -327,6 +327,30 @@ int DAQBoard_comm::read_gcrpar(std::string chip_id, std::string gcrpar, uint16_t
 }
 
 
+int DAQBoard_comm::reinitialize_gcr(std::string chip_id, uint16_t addr){
+
+	if (!chipid_valid(chip_id)){
+		std::cerr << "unknown id: " << chip_id << std::endl;
+		return -1;
+	}
+
+	uint16_t reg_value = 0;
+
+	for(auto const& reg: GCR_map){
+
+		arcadia_reg_param const& param = reg.second;
+		if (param.word_address != addr)
+			continue;
+
+		reg_value |= ((param.default_value & param.mask) << param.offset);
+
+	}
+
+	int res = write_register(chip_id, addr, reg_value);
+	return res;
+}
+
+
 int DAQBoard_comm::write_icr(std::string chip_id, std::string icr_reg, uint16_t value){
 
 	if (!chipid_valid(chip_id)){

@@ -10,6 +10,7 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 		.def("spi_transfer", &DAQBoard_comm::spi_transfer)
 		.def("read_register", &DAQBoard_comm::read_register)
 		.def("write_register", &DAQBoard_comm::write_register)
+		.def("reinitialize_gcr", &DAQBoard_comm::reinitialize_gcr)
 		.def("write_icr", &DAQBoard_comm::write_icr)
 		.def("write_gcrpar", &DAQBoard_comm::write_gcrpar)
 		.def("read_gcrpar", &DAQBoard_comm::read_gcrpar)
