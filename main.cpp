@@ -50,8 +50,6 @@ int main(int argc, char** argv){
 			cxxopts::value<uint32_t>()->default_value("0"))
 		("maxtime",   "Stop DAQ after [arg] seconds",
 			cxxopts::value<uint32_t>()->default_value("0"))
-		("gcrdef",   "GCRPAR will use this as a template instead of the readout GCR value",
-			cxxopts::value<uint16_t>()->default_value("0"))
 		("maxidle",   "Stop DAQ after [arg] seconds of idle time",
 			cxxopts::value<uint32_t>()->default_value("0"))
 		("daq-mode",  "value of daq mode register to set after starting the daq",
@@ -105,8 +103,6 @@ int main(int argc, char** argv){
 
 
 	if (cxxopts_res.count("write")){
-		uint16_t gcrdef = cxxopts_res["gcrdef"].as<uint16_t>();
-		uint16_t gcrdef_exists = cxxopts_res.count("gcrdef");
 		uint32_t value = cxxopts_res["write"].as<uint32_t>();
 
 		if (cxxopts_res.count("gcr")){
@@ -129,7 +125,7 @@ int main(int argc, char** argv){
 			std::string gcrpar = cxxopts_res["gcrpar"].as<std::string>();
 			std::cout << "write gcrpar: " << gcrpar << " val: 0x" << std::hex << value
 				<< std::endl;
-			DAQBoard_mng.write_gcrpar(chipid, gcrpar, value, gcrdef, gcrdef_exists);
+			DAQBoard_mng.write_gcrpar(chipid, gcrpar, value);
 		}
 		else if (!cxxopts_res.count("controller")) {
 			std::cout << "no register selected" << std::endl;

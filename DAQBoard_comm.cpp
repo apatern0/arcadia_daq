@@ -27,13 +27,25 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 		lHW(ConnectionMgr.getDevice(device_str))
 {
 
-	// init chipstructs
+	// init class data
 	for (std::string id: {"id0", "id1", "id2"}){
+
+		// init chipstructs
 		chip_stuctmap.insert(std::make_pair(id, new chip_struct()));
+
+		// init register array with default values
+		for(auto const& reg: GCR_map){
+			arcadia_reg_param const& param = reg.second;
+			chip_stuctmap[id]->GCR_address_array[param.word_address] |=
+				(param.default_value << param.offset);
+		}
+
 	}
 
-	// init spi controller
+
+	// init firmware spi controller
 	for (std::string id: {"id0", "id1", "id2"}){
+
 		std::string spi_id = "spi_" + id;
 		lHW.getNode(spi_id + ".CTRL").write(0);
 		lHW.getNode(spi_id + ".DIVIDER").write(SPI_CLOCK_DIV);
@@ -60,15 +72,6 @@ bool DAQBoard_comm::chipid_valid(std::string chip_id){
 
 
 int DAQBoard_comm::read_conf(std::string fname){
-
-	// init register array with default values
-	for (auto id : {"id0", "id1", "id2"}){
-		for(auto const& reg: GCR_map){
-			arcadia_reg_param const& param = reg.second;
-			chip_stuctmap[id]->GCR_address_array[param.word_address] |=
-				(param.default_value << param.offset);
-		}
-	}
 
 	// run parser
 	if (ini_parse(fname.c_str(), conf_handler, this) < 0){
@@ -232,6 +235,11 @@ int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t d
 	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		return -1;
 
+	if (addr > chip_stuctmap[chip_id]->GCR_address_array.size()){
+		std::cerr << "Invalid address" << std::endl;
+		return -1;
+	}
+
 	int gcr_address = addr | 0x2000;
 	int res;
 
@@ -247,11 +255,14 @@ int DAQBoard_comm::write_register(std::string chip_id, uint16_t addr, uint16_t d
 		return res;
 	}
 
+	// update cached value
+	chip_stuctmap[chip_id]->GCR_address_array[addr] = data;
+
 	return res;
 }
 
 
-int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value, uint16_t gcrdef, uint16_t gcrdef_exists){
+int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value){
 
 	if (!chipid_valid(chip_id)){
 		std::cerr << "unknown id: " << chip_id << std::endl;
@@ -269,25 +280,16 @@ int DAQBoard_comm::write_gcrpar(std::string chip_id, std::string gcrpar, uint16_
 
 	arcadia_reg_param const& param = search->second;
 
-	int res;
-	uint16_t reg_data;
-
-	if(gcrdef_exists)
-		reg_data = gcrdef;
-	else {
-		res = read_register(chip_id, param.word_address, &reg_data);
-		if (res)
-			return res;
-	}
-
+	// read current cached gcr value
+	uint16_t reg_data = chip_stuctmap[chip_id]->GCR_address_array[param.word_address];
 	// clear paramer bits
 	reg_data &= ~(param.mask << param.offset);
 	// set parameter bits
 	reg_data |= ((value & param.mask) << param.offset);
 	// write
-	res = write_register(chip_id, param.word_address, reg_data);
+	int res = write_register(chip_id, param.word_address, reg_data);
 
-	std::cout << "write gcr: " << std::dec << param.word_address << " val: 0x" << std::hex << reg_data << std::endl;
+	//std::cout << "write gcr: " << std::dec << param.word_address << " val: 0x" << std::hex << reg_data << std::endl;
 
 	return res;
 }
@@ -354,6 +356,45 @@ int DAQBoard_comm::write_icr(std::string chip_id, std::string icr_reg, uint16_t 
 	}
 
 	return res;
+}
+
+
+int DAQBoard_comm::check_consistency(const std::string chip_id){
+
+	if (!chipid_valid(chip_id)){
+		std::cerr << "unknown id: " << chip_id << std::endl;
+		return -1;
+	}
+
+	if (chip_stuctmap[chip_id]->spi_unavaiable)
+		return -1;
+
+
+	int errcount = 0;
+	uint32_t gcr_addr_max = chip_stuctmap[chip_id]->GCR_address_array.size();
+
+	for(uint32_t addr = 0; addr < gcr_addr_max; addr++){
+
+		uint16_t reg_data = 0;
+		uint16_t reg_cached = chip_stuctmap[chip_id]->GCR_address_array[addr];
+
+		uint16_t res = read_register(chip_id, addr, &reg_data);
+
+		if (res){
+			std::cerr << "Falied to read gcr: " << addr << std::endl;
+			errcount++;
+		}
+		else if (reg_data != reg_cached){
+			std::cout << "gcr " << addr << " mismatch.  Read: " << std::hex << reg_data <<
+				" cached: " << reg_cached << std::endl;
+			errcount++;
+		}
+	}
+
+	std::cout << "Check completed with " << errcount << " errors." << std::endl;
+
+	return errcount;
+
 }
 
 

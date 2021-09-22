@@ -128,6 +128,21 @@ static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
 };
 
 
+inline uint32_t calc_gcr_max_addr(){
+
+	uint16_t addr_max = 0;
+
+	for(auto const& reg: GCR_map){
+
+		arcadia_reg_param const& param = reg.second;
+		if (param.word_address > addr_max)
+			addr_max = param.word_address;
+
+	}
+
+	return (addr_max+1);
+}
+
 
 class DAQBoard_comm{
 private:
@@ -149,7 +164,7 @@ private:
 		std::vector<uint32_t> ctrl_address_array;
 
 		chip_struct() : run_flag({false}), daq_timedout(false), spi_unavaiable(false),
-			GCR_address_array(GCR_map.size()), ctrl_address_array(ctrl_cmd_map.size()) {}
+			GCR_address_array(calc_gcr_max_addr()), ctrl_address_array(ctrl_cmd_map.size()) {}
 	};
 
 	std::map<std::string, chip_struct*> chip_stuctmap;
@@ -171,8 +186,9 @@ public:
 	int read_register(std::string chip_id, uint16_t addr, uint16_t* data);
 	int write_register(std::string chip_id, uint16_t addr, uint16_t data);
 	int write_icr(std::string chip_id, std::string icr_reg, uint16_t data);
-	int write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value, uint16_t gcrdef, uint16_t gcrdef_exists);
+	int write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value);
 	int read_gcrpar(std::string chip_id, std::string gcrpar, uint16_t* value);
+	int check_consistency(const std::string chip_id);
 
 	int send_controller_command(const std::string controller_id, const std::string cmd,
 			uint32_t arg, uint32_t* resp);

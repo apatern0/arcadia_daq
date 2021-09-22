@@ -13,6 +13,7 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 		.def("write_icr", &DAQBoard_comm::write_icr)
 		.def("write_gcrpar", &DAQBoard_comm::write_gcrpar)
 		.def("read_gcrpar", &DAQBoard_comm::read_gcrpar)
+		.def("check_consistency", &DAQBoard_comm::check_consistency)
 		.def("send_controller_command", &DAQBoard_comm::send_controller_command)
 		.def("read_fpga_register", &DAQBoard_comm::read_fpga_register)
 		.def("write_fpga_register", &DAQBoard_comm::write_fpga_register)
