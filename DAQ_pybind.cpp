@@ -3,7 +3,28 @@
 
 namespace py = pybind11;
 
+
+void set_ipbus_loglevel(int level){
+
+	switch(level){
+
+		case 0:
+			uhal::disableLogging();
+			break;
+		case 1:
+			uhal::setLogLevelTo(uhal::Error());
+			break;
+		default:
+			uhal::setLogLevelTo(uhal::Warning());
+			break;
+
+	}
+
+}
+
+
 PYBIND11_MODULE(DAQ_pybind, m) {
+
 	py::class_<DAQBoard_comm>(m, "DAQBoard_comm")
 		.def(py::init<const std::string &, const std::string &, bool>())
 		.def("read_conf", &DAQBoard_comm::read_conf)
@@ -26,4 +47,7 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 		.def("wait_daq_finished", &DAQBoard_comm::wait_daq_finished)
 		.def("get_packet_count", &DAQBoard_comm::get_packet_count)
 		.def("cal_serdes_idealy", &DAQBoard_comm::cal_serdes_idealy);
+
+	m.def("set_ipbus_loglevel", &set_ipbus_loglevel);
+
 }
