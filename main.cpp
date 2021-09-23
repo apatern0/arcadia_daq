@@ -140,7 +140,7 @@ int main(int argc, char** argv){
 		if (cxxopts_res.count("gcr")){
 			uint16_t val = 0;
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
-			DAQBoard_mng.read_gcr(chipid, gcr, &val);
+			DAQBoard_mng.read_gcr(chipid, gcr, &val, true);
 			std::cout << "read grc: " << gcr << " val: 0x" << std::hex << val << std::endl;
 		}
 		else if(cxxopts_res.count("reg")){
@@ -152,7 +152,7 @@ int main(int argc, char** argv){
 		else if (cxxopts_res.count("gcrpar")){
 			std::string gcrpar = cxxopts_res["gcrpar"].as<std::string>();
 			uint16_t data;
-			int ret = DAQBoard_mng.read_gcrpar(chipid, gcrpar, &data);
+			int ret = DAQBoard_mng.read_gcrpar(chipid, gcrpar, &data, true);
 			if (ret != 0){
 				std::cout << "read error: " << ret  << std::endl;
 				return -1;
