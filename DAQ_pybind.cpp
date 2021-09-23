@@ -57,7 +57,14 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 				})
 
 		.def("check_consistency", &DAQBoard_comm::check_consistency)
-		.def("send_controller_command", &DAQBoard_comm::send_controller_command)
+
+		.def("send_controller_command", [](DAQBoard_comm &DAQ, std::string controller_id,
+					const std::string cmd, uint32_t arg) {
+				uint32_t resp;
+				int ret = DAQ.send_controller_command(controller_id, cmd, arg, &resp);
+				return std::make_tuple(ret, resp);
+				})
+
 		.def("read_fpga_register", &DAQBoard_comm::read_fpga_register)
 
 		.def("read_fpga_register", [](DAQBoard_comm &DAQ, std::string reg_handler) {
