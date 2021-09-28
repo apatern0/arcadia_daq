@@ -125,6 +125,19 @@ static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
 	{"syncTX",              {0x11, 0xffff,  0, 0}},
 	{"readTxState",         {0x12, 0xffff,  0, 0}},
 	{"read8b10bErrCounters",{0x13, 0x000f,  0, 0}},
+	{"writeTimeStampPeriod",{0x15, 0xffff,  0, 0}},
+	{"setTxDataEnable",     {0x20, 0xffff,  0, 0}},
+	{"loadUSerData_0",      {0x21, 0xffff,  0, 0}},
+	{"loadUSerData_1",      {0x22, 0xffff,  0, 0}},
+	{"loadUSerData_2",      {0x23, 0xffff,  0, 0}},
+	{"loadUSerData_3",      {0x24, 0xffff,  0, 0}},
+	{"loadUSerDataPush",    {0x25, 0x0001,  0, 0}},
+	{"loadTPOnTime",        {0x26, 0xfffff,  0, 0}},
+	{"loadTPOffTime",       {0x27, 0xfffff,  0, 0}},
+	{"loadTPNumber",        {0x28, 0xfffff,  0, 0}},
+	{"runTPSequence",       {0x29, 0x0001,  0, 0}},
+	{"loadTSDeltaLSB",      {0x2a, 0xfffff,  0, 0}},
+	{"loadTSDeltaMSB",      {0x2b, 0xfffff,  0, 0}},
 };
 
 
@@ -198,7 +211,8 @@ public:
 
 	int read_fpga_register(std::string reg_handler, uint32_t* data);
 	int write_fpga_register(std::string reg_handler, uint32_t data);
-	int send_pulse(const std::string chip_id);
+	int send_pulse(const std::string chip_id,
+			uint32_t t_on, uint32_t t_off, uint32_t tp_number);
 	void dump_DAQBoard_reg();
 	int reset_fifo(std::string chip_id);
 

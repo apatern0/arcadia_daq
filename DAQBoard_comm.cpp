@@ -491,7 +491,8 @@ int DAQBoard_comm::send_controller_command(const std::string controller_id,
 }
 
 
-int DAQBoard_comm::send_pulse(const std::string chip_id){
+int DAQBoard_comm::send_pulse(const std::string chip_id,
+		uint32_t t_on, uint32_t t_off, uint32_t tp_number){
 
 	if (!chipid_valid(chip_id)){
 		std::cerr << "unknown id: " << chip_id << std::endl;
@@ -501,10 +502,14 @@ int DAQBoard_comm::send_pulse(const std::string chip_id){
 	if (chip_stuctmap[chip_id]->spi_unavaiable)
 		std::cout << "WARNING: chip not configured" << std::endl;
 
-	std::cout << "pulsing " << chip_id << std::endl;
-	const uhal::Node& pulser_Node = lHW.getNode("pulser." + chip_id);
-	pulser_Node.write(0);
-	lHW.dispatch();
+	const std::string controller_id = "controller_" + chip_id;
+
+	send_controller_command(controller_id, "loadTPOnTime", t_on, NULL);
+	send_controller_command(controller_id, "loadTPOffTime", t_off, NULL);
+	send_controller_command(controller_id, "loadTPNumber", tp_number, NULL);
+
+	std::cout << "pulsing.." << chip_id << std::endl;
+	send_controller_command(controller_id, "runTPSequence", 0, NULL);
 
 	return 0;
 }

@@ -168,7 +168,7 @@ int main(int argc, char** argv){
 	}
 
 	if(cxxopts_res.count("pulse"))
-		DAQBoard_mng.send_pulse(cxxopts_res["pulse"].as<std::string>());
+		DAQBoard_mng.send_pulse(cxxopts_res["pulse"].as<std::string>(), 10, 10, 1);
 
 	if (cxxopts_res.count("dump-regs"))
 		DAQBoard_mng.dump_DAQBoard_reg();
