@@ -17,17 +17,17 @@
   <node id="fifo_id0" address="0x00021000">
     <node id="occupancy" address="0x00000001" mode="single" permission="r"/>
     <node id="reset" address="0x00000002" mode="single" permission="w"/>
-    <node id="data" address="0x00000003" mode="non-incremental" size="32769" permission="r"/>
+    <node id="data" address="0x00000003" mode="non-incremental" size="65536" permission="r"/>
   </node>
   <node id="fifo_id1" address="0x00030000">
     <node id="occupancy" address="0x00000001" mode="single" permission="r"/>
     <node id="reset" address="0x00000002" mode="single" permission="w"/>
-    <node id="data" address="0x00000003" mode="non-incremental" size="32769" permission="r"/>
+    <node id="data" address="0x00000003" mode="non-incremental" size="65536" permission="r"/>
   </node>
   <node id="fifo_id2" address="0x00031000">
     <node id="occupancy" address="0x00000001" mode="single" permission="r"/>
     <node id="reset" address="0x00000002" mode="single" permission="w"/>
-    <node id="data" address="0x00000003" mode="non-incremental" size="32769" permission="r"/>
+    <node id="data" address="0x00000003" mode="non-incremental" size="65536" permission="r"/>
   </node>
 
   <node id="spi_id0" address="0x00040000">
