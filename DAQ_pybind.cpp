@@ -34,14 +34,14 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 					std::string chip_id) {
 				uint32_t rcv_data;
 				int ret = DAQ.spi_transfer(command, payload, chip_id, &rcv_data);
-				return std::make_tuple(ret, rcv_data);
+				return py::make_tuple(ret, rcv_data);
 				})
 
 		.def("read_gcr", [](DAQBoard_comm &DAQ, std::string chip_id, uint16_t addr,
 					bool force_update) {
 				uint16_t value;
 				int ret = DAQ.read_gcr(chip_id, addr, &value, force_update);
-				return std::make_tuple(ret, value);
+				return py::make_tuple(ret, value);
 				})
 
 		.def("write_gcr", &DAQBoard_comm::write_gcr)
@@ -53,7 +53,7 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 					bool force_update) {
 				uint16_t value;
 				int ret = DAQ.read_gcrpar(chip_id, gcrpar, &value, force_update);
-				return std::make_tuple(ret, value);
+				return py::make_tuple(ret, value);
 				})
 
 		.def("check_consistency", &DAQBoard_comm::check_consistency)
@@ -62,7 +62,7 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 					const std::string cmd, uint32_t arg) {
 				uint32_t resp;
 				int ret = DAQ.send_controller_command(controller_id, cmd, arg, &resp);
-				return std::make_tuple(ret, resp);
+				return py::make_tuple(ret, resp);
 				})
 
 		.def("read_fpga_register", &DAQBoard_comm::read_fpga_register)
@@ -70,7 +70,7 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 		.def("read_fpga_register", [](DAQBoard_comm &DAQ, std::string reg_handler) {
 				uint32_t value;
 				int ret = DAQ.read_fpga_register(reg_handler, &value);
-				return std::make_tuple(ret, value);
+				return py::make_tuple(ret, value);
 				})
 
 		.def("write_fpga_register", &DAQBoard_comm::write_fpga_register)
