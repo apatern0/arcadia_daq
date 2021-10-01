@@ -127,11 +127,11 @@ static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
 	{"read8b10bErrCounters",{0x13, 0x000f,  0, 0}},
 	{"writeTimeStampPeriod",{0x15, 0xffff,  0, 0}},
 	{"setTxDataEnable",     {0x20, 0xffff,  0, 0}},
-	{"loadUSerData_0",      {0x21, 0xffff,  0, 0}},
-	{"loadUSerData_1",      {0x22, 0xffff,  0, 0}},
-	{"loadUSerData_2",      {0x23, 0xffff,  0, 0}},
-	{"loadUSerData_3",      {0x24, 0xffff,  0, 0}},
-	{"loadUSerDataPush",    {0x25, 0x0001,  0, 0}},
+	{"loadUserData_0",      {0x21, 0xffff,  0, 0}},
+	{"loadUserData_1",      {0x22, 0xffff,  0, 0}},
+	{"loadUserData_2",      {0x23, 0xffff,  0, 0}},
+	{"loadUserData_3",      {0x24, 0xffff,  0, 0}},
+	{"loadUserDataPush",    {0x25, 0x0001,  0, 0}},
 	{"loadTPOnTime",        {0x26, 0xfffff,  0, 0}},
 	{"loadTPOffTime",       {0x27, 0xfffff,  0, 0}},
 	{"loadTPNumber",        {0x28, 0xfffff,  0, 0}},
@@ -157,6 +157,23 @@ inline uint32_t calc_gcr_max_addr(){
 }
 
 
+inline uint32_t calc_cmd_max_addr(){
+
+	uint16_t addr_max = 0;
+
+	for(auto const& reg: ctrl_cmd_map){
+
+		arcadia_reg_param const& param = reg.second;
+		if (param.word_address > addr_max)
+			addr_max = param.word_address;
+
+	}
+
+	return (addr_max+1);
+}
+
+
+
 class DAQBoard_comm{
 private:
 
@@ -177,7 +194,7 @@ private:
 		std::vector<uint32_t> ctrl_address_array;
 
 		chip_struct() : run_flag({false}), daq_timedout(false), spi_unavaiable(false),
-			GCR_address_array(calc_gcr_max_addr()), ctrl_address_array(ctrl_cmd_map.size()) {}
+			GCR_address_array(calc_gcr_max_addr()), ctrl_address_array(calc_cmd_max_addr()) {}
 	};
 
 	std::map<std::string, chip_struct*> chip_stuctmap;
