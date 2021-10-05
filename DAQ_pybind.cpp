@@ -76,11 +76,15 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 		.def("write_fpga_register", &DAQBoard_comm::write_fpga_register)
 		.def("send_pulse", &DAQBoard_comm::send_pulse)
 		.def("dump_DAQBoard_reg", &DAQBoard_comm::dump_DAQBoard_reg)
+
 		.def("reset_fifo", &DAQBoard_comm::reset_fifo)
+		.def("daq_read", &DAQBoard_comm::daq_read)
 		.def("start_daq", &DAQBoard_comm::start_daq)
 		.def("stop_daq", &DAQBoard_comm::stop_daq)
 		.def("wait_daq_finished", &DAQBoard_comm::wait_daq_finished)
+
 		.def("get_packet_count", &DAQBoard_comm::get_packet_count)
+		.def("get_fifo_occupancy", &DAQBoard_comm::get_fifo_occupancy)
 		.def("cal_serdes_idealy", &DAQBoard_comm::cal_serdes_idealy);
 
 	m.def("set_ipbus_loglevel", &set_ipbus_loglevel);

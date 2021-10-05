@@ -1,7 +1,7 @@
 CXX = g++
 CXXFLAGS = -g -std=c++11 -Wall -Wextra -O2
-LIBS = -I/opt/cactus/include -I./cxxopts -L/opt/cactus/lib -lcactus_uhal_uhal -lcactus_uhal_grammars -lcactus_uhal_log -lpthread -linih -lboost_system
-PYLIBS = $(shell python -m pybind11 --includes)
+LIBS = -I/opt/cactus/include -I/usr/include/python3.6m -I./cxxopts -L/opt/cactus/lib -lcactus_uhal_uhal -lcactus_uhal_grammars -lcactus_uhal_log -lpthread -linih -lboost_system
+PYLIBS = $(shell python3.6 -m pybind11 --includes)
 
 all: arcadia-cli chk_counter DAQ_pybind.so
 
