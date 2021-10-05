@@ -1,0 +1,9 @@
+*.raw
+results
+*.swp
+*.orig
+*.so
+*.o
+__pycache__
+arcadia-cli
+chk_counter
