@@ -508,7 +508,7 @@ int DAQBoard_comm::send_pulse(const std::string chip_id,
 	send_controller_command(controller_id, "loadTPOffTime", t_off, NULL);
 	send_controller_command(controller_id, "loadTPNumber", tp_number, NULL);
 
-	std::cout << "pulsing.." << chip_id << std::endl;
+	//std::cout << "pulsing.." << chip_id << std::endl;
 	send_controller_command(controller_id, "runTPSequence", 0, NULL);
 
 	return 0;
@@ -528,6 +528,46 @@ void DAQBoard_comm::dump_DAQBoard_reg(){
 }
 
 
+void DAQBoard_comm::daq_read(std::string chip_id, const std::string fname, uint32_t stopafter) {
+	const std::string filename = fname + chip_id + ".raw";
+
+	const uhal::Node& Node_fifo_occupancy = lHW.getNode("fifo_" + chip_id + ".occupancy");
+	const uhal::Node& Node_fifo_data = lHW.getNode("fifo_" + chip_id + ".data");
+	std::ofstream outstrm(filename, std::ios::out | std::ios::trunc | std::ios::binary);
+
+	if (!outstrm.is_open())
+		throw std::runtime_error("Can't open file for write");
+
+	chip_stuctmap[chip_id]->packet_count = 0;
+
+	uhal::ValWord<uint32_t> fifo_occupancy = Node_fifo_occupancy.read();
+	lHW.dispatch();
+
+	uint32_t occupancy = (fifo_occupancy.value() & 0x1ffff);
+
+	if (occupancy == 0)
+		return;
+
+	if (occupancy > Node_fifo_data.getSize())
+		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value");
+
+	chip_stuctmap[chip_id]->packet_count += occupancy;
+
+	occupancy = (occupancy > stopafter) ? stopafter : occupancy;
+	uhal::ValVector<uint32_t> data = Node_fifo_data.readBlock(occupancy);
+	lHW.dispatch();
+
+	if (data.size() < occupancy){
+		std::cout << "fail to read data" << std::endl;
+		return;
+	}
+
+	outstrm.write((char*)data.value().data(), data.size()*4);
+
+	outstrm.close();
+}
+
+
 void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout){
 
@@ -541,7 +581,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		throw std::runtime_error("Can't open file for write");
 
 	std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-	std::chrono::steady_clock::time_point idle_start_time = std::chrono::steady_clock::now();
+	std::chrono::steady_clock::time_point idle_start_time = start_time;
 	chip_stuctmap[chip_id]->packet_count = 0;
 
 	const int max_iter = 5000;
@@ -553,7 +593,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		uhal::ValWord<uint32_t> fifo_occupancy = Node_fifo_occupancy.read();
 		lHW.dispatch();
 
-		uint32_t occupancy = (fifo_occupancy.value() & 0xffff);
+		uint32_t occupancy = (fifo_occupancy.value() & 0x1ffff);
 
 		if (occupancy != 0)
 			idle_start_time = std::chrono::steady_clock::now();
@@ -571,13 +611,15 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		}
 
 		std::chrono::steady_clock::time_point time_now = std::chrono::steady_clock::now();
+		uint32_t elapsed_secs =
+			std::chrono::duration_cast<std::chrono::seconds>(time_now-start_time).count();
+
 		// Idle Timeout
 		if (idle_timeout != 0){
-
-			uint32_t elapsed_secs =
+			uint32_t elapsed_secs_idle =
 				std::chrono::duration_cast<std::chrono::seconds>(time_now-idle_start_time).count();
 
-			if (elapsed_secs > idle_timeout){
+			if (elapsed_secs_idle > idle_timeout){
 				chip_stuctmap[chip_id]->run_flag = false;
 				if (stopafter !=0 && chip_stuctmap[chip_id]->packet_count < stopafter)
 					chip_stuctmap[chip_id]->daq_timedout = true;
@@ -586,9 +628,6 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 
 		// Timeout
 		if (timeout != 0){
-			uint32_t elapsed_secs =
-				std::chrono::duration_cast<std::chrono::seconds>(time_now-start_time).count();
-
 			if (elapsed_secs > timeout){
 				chip_stuctmap[chip_id]->run_flag = false;
 				if (stopafter !=0 && chip_stuctmap[chip_id]->packet_count < stopafter)
@@ -613,6 +652,7 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		}
 
 		outstrm.write((char*)data.value().data(), data.size()*4);
+		outstrm.flush();
 
 		// stop if maxpkg found
 		if (stopafter != 0 && chip_stuctmap[chip_id]->packet_count >= stopafter)
@@ -636,7 +676,7 @@ int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, uint32_t t
 	chip_stuctmap[chip_id]->dataread_thread =
 		std::thread(&DAQBoard_comm::daq_loop, this, fname, chip_id, stopafter, timeout, idle_timeout);
 
-	std::cout << chip_id << ": Data read thread started" << std::endl;
+	//std::cout << chip_id << ": Data read thread started" << std::endl;
 
 	return 0;
 }
@@ -665,7 +705,7 @@ int DAQBoard_comm::wait_daq_finished(){
 			continue;
 
 		ch.second->dataread_thread.join();
-		std::cout << ch.first << ": Data read thread stopped" << std::endl;
+		//std::cout << ch.first << ": Data read thread stopped" << std::endl;
 		if (ch.second->daq_timedout){
 			std::cout << "    (thread timed out)" << std::endl;
 			retcode = -1;
@@ -674,6 +714,23 @@ int DAQBoard_comm::wait_daq_finished(){
 	}
 
 	return retcode;
+}
+
+
+uint32_t DAQBoard_comm::get_fifo_occupancy(std::string chip_id){
+
+	if (!chipid_valid(chip_id)){
+		std::cerr << "unknown id: " << chip_id << std::endl;
+		return 0;
+	}
+
+	const uhal::Node& Node_fifo_occupancy = lHW.getNode("fifo_" + chip_id + ".occupancy");
+	lHW.dispatch();
+	uhal::ValWord<uint32_t> fifo_occupancy = Node_fifo_occupancy.read();
+	lHW.dispatch();
+	uint32_t occupancy = (fifo_occupancy.value() & 0x1ffff);
+
+	return occupancy;
 }
 
 

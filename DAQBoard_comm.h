@@ -100,44 +100,45 @@ static const std::map <std::string, arcadia_reg_param> GCR_map = {
 
 
 static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
-	{"resetIDELAYTCTRL",    {0x01, 0x0001,  0, 0}},
-	{"resetISERDES",        {0x02, 0x0001,  0, 0}},
-	{"setIDELAYTap0",       {0x03, 0x001f,  0, 0}},
-	{"setIDELAYTap1",       {0x03, 0x001f,  5, 0}},
-	{"setIDELAYTap2",       {0x03, 0x001f, 10, 0}},
-	{"setIDELAYTap3",       {0x03, 0x001f, 15, 0}},
-	{"setIDELAYTap4",       {0x04, 0x001f,  0, 0}},
-	{"setIDELAYTap5",       {0x04, 0x001f,  5, 0}},
-	{"setIDELAYTap6",       {0x04, 0x001f, 10, 0}},
-	{"setIDELAYTap7",       {0x04, 0x001f, 15, 0}},
-	{"setIDELAYTap8",       {0x05, 0x001f,  0, 0}},
-	{"setIDELAYTap9",       {0x05, 0x001f,  5, 0}},
-	{"setIDELAYTapa",       {0x05, 0x001f, 10, 0}},
-	{"setIDELAYTapb",       {0x05, 0x001f, 15, 0}},
-	{"setIDELAYTapc",       {0x06, 0x001f,  0, 0}},
-	{"setIDELAYTapd",       {0x06, 0x001f,  5, 0}},
-	{"setIDELAYTape",       {0x06, 0x001f, 10, 0}},
-	{"setIDELAYTapf",       {0x06, 0x001f, 15, 0}},
-	{"setSyncResetPhase",   {0x07, 0x0001,  0, 0}},
-	{"doRESET",             {0x08, 0x0001,  0, 0}},
-	{"resetSPI",            {0x09, 0x0001,  0, 0}},
-	{"resetCounters",       {0x10, 0x0001,  0, 0}},
-	{"syncTX",              {0x11, 0xffff,  0, 0}},
-	{"readTxState",         {0x12, 0xffff,  0, 0}},
-	{"read8b10bErrCounters",{0x13, 0x000f,  0, 0}},
-	{"writeTimeStampPeriod",{0x15, 0xffff,  0, 0}},
-	{"setTxDataEnable",     {0x20, 0xffff,  0, 0}},
-	{"loadUserData_0",      {0x21, 0xffff,  0, 0}},
-	{"loadUserData_1",      {0x22, 0xffff,  0, 0}},
-	{"loadUserData_2",      {0x23, 0xffff,  0, 0}},
-	{"loadUserData_3",      {0x24, 0xffff,  0, 0}},
-	{"loadUserDataPush",    {0x25, 0x0001,  0, 0}},
-	{"loadTPOnTime",        {0x26, 0xfffff,  0, 0}},
-	{"loadTPOffTime",       {0x27, 0xfffff,  0, 0}},
-	{"loadTPNumber",        {0x28, 0xfffff,  0, 0}},
-	{"runTPSequence",       {0x29, 0x0001,  0, 0}},
-	{"loadTSDeltaLSB",      {0x2a, 0xfffff,  0, 0}},
-	{"loadTSDeltaMSB",      {0x2b, 0xfffff,  0, 0}},
+	{"resetIDELAYTCTRL",     {0x01, 0x0001,  0, 0}},
+	{"resetISERDES",         {0x02, 0x0001,  0, 0}},
+	{"setIDELAYTap0",        {0x03, 0x001f,  0, 0}},
+	{"setIDELAYTap1",        {0x03, 0x001f,  5, 0}},
+	{"setIDELAYTap2",        {0x03, 0x001f, 10, 0}},
+	{"setIDELAYTap3",        {0x03, 0x001f, 15, 0}},
+	{"setIDELAYTap4",        {0x04, 0x001f,  0, 0}},
+	{"setIDELAYTap5",        {0x04, 0x001f,  5, 0}},
+	{"setIDELAYTap6",        {0x04, 0x001f, 10, 0}},
+	{"setIDELAYTap7",        {0x04, 0x001f, 15, 0}},
+	{"setIDELAYTap8",        {0x05, 0x001f,  0, 0}},
+	{"setIDELAYTap9",        {0x05, 0x001f,  5, 0}},
+	{"setIDELAYTapa",        {0x05, 0x001f, 10, 0}},
+	{"setIDELAYTapb",        {0x05, 0x001f, 15, 0}},
+	{"setIDELAYTapc",        {0x06, 0x001f,  0, 0}},
+	{"setIDELAYTapd",        {0x06, 0x001f,  5, 0}},
+	{"setIDELAYTape",        {0x06, 0x001f, 10, 0}},
+	{"setIDELAYTapf",        {0x06, 0x001f, 15, 0}},
+	{"setSyncResetPhase",    {0x07, 0x0001,  0, 0}},
+	{"doRESET",              {0x08, 0x0001,  0, 0}},
+	{"resetSPI",             {0x09, 0x0001,  0, 0}},
+	{"resetCounters",        {0x10, 0x0001,  0, 0}},
+	{"syncTX",               {0x11, 0xffff,  0, 0}},
+	{"readTxState",          {0x12, 0xffff,  0, 0}},
+	{"read8b10bErrCounters", {0x13, 0x000f,  0, 0}},
+	{"writeTimeStampPeriod", {0x14, 0xffff,  0, 0}},
+	{"resetTimeStampCounter",{0x15, 0xffff,  0, 0}},
+	{"setTxDataEnable",      {0x20, 0xffff,  0, 0}},
+	{"loadUserData_0",       {0x21, 0xffff,  0, 0}},
+	{"loadUserData_1",       {0x22, 0xffff,  0, 0}},
+	{"loadUserData_2",       {0x23, 0xffff,  0, 0}},
+	{"loadUserData_3",       {0x24, 0xffff,  0, 0}},
+	{"loadUserDataPush",     {0x25, 0x0001,  0, 0}},
+	{"loadTPOnTime",         {0x26, 0xfffff,  0, 0}},
+	{"loadTPOffTime",        {0x27, 0xfffff,  0, 0}},
+	{"loadTPNumber",         {0x28, 0xfffff,  0, 0}},
+	{"runTPSequence",        {0x29, 0x0001,  0, 0}},
+	{"loadTSDeltaLSB",       {0x2a, 0xfffff,  0, 0}},
+	{"loadTSDeltaMSB",       {0x2b, 0xfffff,  0, 0}},
 };
 
 
@@ -233,11 +234,13 @@ public:
 	void dump_DAQBoard_reg();
 	int reset_fifo(std::string chip_id);
 
+	void daq_read(std::string chip_id, const std::string fname, uint32_t stopafter);
 	int start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout,
 			std::string fname = "dout");
 	int stop_daq(std::string chip_id);
 	int wait_daq_finished();
 	uint32_t get_packet_count(std::string chip_id);
+	uint32_t get_fifo_occupancy(std::string chip_id);
 
 	int cal_serdes_idealy(std::string contrller_id);
 
