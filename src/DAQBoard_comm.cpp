@@ -4,7 +4,9 @@
 #include <stdexcept>
 #include <chrono>
 
-#include "ini.h"
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+
 #include "DAQBoard_comm.h"
 
 #define SPI_CHAR_LEN 0x18
@@ -69,82 +71,69 @@ bool DAQBoard_comm::chipid_valid(std::string chip_id){
 
 }
 
-
 int DAQBoard_comm::read_conf(std::string fname){
 
-	// run parser
-	if (ini_parse(fname.c_str(), conf_handler, this) < 0){
-		std::cerr << "Can't open file: " << fname << std::endl;
-		return -1;
+	boost::property_tree::ptree pt;
+	boost::property_tree::ini_parser::read_ini(fname.c_str(), pt);
+
+	for (auto& section : pt) {
+		std::cout << '[' << section.first << "]\n";
+		std::string section_str(section.first);
+
+		for (auto& key : section.second) {
+			std::cout << key.first << "=" << key.second.get_value<std::string>() << "\n";
+
+			// parse section name/reg
+			std::string register_name(key.first);
+			std::string value(key.second.get_value<std::string>());
+
+			if (section_str == "id0" || section_str == "id1" || section_str == "id2"){
+				uint16_t reg_value = strtol(value.c_str(), NULL, 0);
+
+				// handle ICR0
+				if (register_name == "ICR0" || register_name == "IRC1"){
+					//std::cout << register_name << " : " << std::hex << reg_value << std::endl;
+					write_icr(section_str, register_name, reg_value);
+					continue;
+				}
+
+				// if not ICR0, lookup regname
+				auto search = GCR_map.find(register_name);
+				if (search == GCR_map.end()){
+					std::cerr << "Warning: invalid conf key found: " << register_name << std::endl;
+					continue;
+				}
+
+				arcadia_reg_param const& param = search->second;
+				// clear parameter bits in register
+				chip_stuctmap[section_str]->GCR_address_array[param.word_address] &=
+					~(param.mask << param.offset);
+				// set paramter bits in register
+				chip_stuctmap[section_str]->GCR_address_array[param.word_address] |=
+					(reg_value & param.mask) << param.offset;
+
+				// write reg
+				write_gcr(section_str, param.word_address,
+						chip_stuctmap[section_str]->GCR_address_array[param.word_address]);
+
+				continue;
+
+			} else if (section_str == "controller_id0" || section_str == "controller_id1" ||
+					section_str == "controller_id2"){
+
+				uint32_t reg_value = strtol(value.c_str(), NULL, 0);
+				send_controller_command(section_str, register_name, reg_value, NULL);
+
+				continue;
+
+			} else {
+				std::cerr << "Unknown section: " << section_str << std::endl;
+				continue;
+			}
+		}
 	}
 
 	return 0;
-}
-
-
-int DAQBoard_comm::conf_handler(void* user, const char* section, const char* name,
-		const char* value){
-
-	const int inih_OK  = 1;
-	const int inih_ERR = 0;
-	// cast *this pointer
-	DAQBoard_comm* self = static_cast<DAQBoard_comm*>(user);
-
-	// parse section name/reg
-	std::string section_str(section);
-	std::string register_name(name);
-
-	if (section_str == "id0" || section_str == "id1" || section_str == "id2"){
-
-		uint16_t reg_value = strtol(value, NULL, 0);
-
-		// handle ICR0
-		if (register_name == "ICR0" || register_name == "IRC1"){
-			//std::cout << register_name << " : " << std::hex << reg_value << std::endl;
-			self->write_icr(section_str, register_name, reg_value);
-			return inih_OK;
-		}
-
-		// if not ICR0, lookup regname
-		auto search = GCR_map.find(name);
-		if (search == GCR_map.end()){
-			std::cerr << "Warning: invalid conf key found: " << name << std::endl;
-			return inih_ERR;
-		}
-
-		arcadia_reg_param const& param = search->second;
-		// clear parameter bits in register
-		self->chip_stuctmap[section_str]->GCR_address_array[param.word_address] &=
-			~(param.mask << param.offset);
-		// set paramter bits in register
-		self->chip_stuctmap[section_str]->GCR_address_array[param.word_address] |=
-			(reg_value & param.mask) << param.offset;
-
-		//std::cout << "id: " << section_str << " reg: " <<
-		//	param.word_address << " val: " << std::hex <<
-		//	self->chip_stuctmap[section_str]->GCR_address_array[param.word_address]
-		//	<< std::endl;
-
-		// write reg
-		self->write_gcr(section_str, param.word_address,
-				self->chip_stuctmap[section_str]->GCR_address_array[param.word_address]);
-
-		return inih_OK;
-	}
-	else if (section_str == "controller_id0" || section_str == "controller_id1" ||
-			section_str == "controller_id2"){
-
-		uint32_t reg_value = strtol(value, NULL, 0);
-		self->send_controller_command(section_str, name, reg_value, NULL);
-
-		return inih_OK;
-	}
-	else {
-		std::cerr << "Unknown section: " << section_str << std::endl;
-		return inih_ERR;
-	}
-
-	return inih_OK;
 }
 
 

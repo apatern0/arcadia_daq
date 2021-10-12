@@ -4,7 +4,7 @@ PYTHON = python3
 SRC = ../../src
 
 CXXFLAGS = -g -std=c++11 -Wall -Wextra -O2
-LIBS = -I/opt/cactus/include -L/opt/cactus/lib -lcactus_uhal_uhal -lcactus_uhal_grammars -lcactus_uhal_log -lpthread -linih -lboost_system
+LIBS = -I/opt/cactus/include -L/opt/cactus/lib -lcactus_uhal_uhal -lcactus_uhal_grammars -lcactus_uhal_log -lpthread -lboost_system
 PYLIBS = $(shell $(PYTHON) -m pybind11 --includes)
 
 all: arcadia-cli chk_counter DAQ_pybind.so
