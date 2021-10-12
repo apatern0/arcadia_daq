@@ -5,10 +5,6 @@ import matplotlib.pyplot as plt
 from DAQ_pybind import DAQBoard_comm, set_ipbus_loglevel
 set_ipbus_loglevel(0)
 
-# Load DAQBoard python bindings
-_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(_PATH)
-
 def onehot(bits, base=0x0000):
     if(isinstance(bits, list)):
         onehot = 0x0000
@@ -25,8 +21,12 @@ def onecold(bits, base=0xffff):
 class Daq(DAQBoard_comm):
     """ Communicate with Chip """
     chip_id = 'id0'
+    sections_to_mask = 0
 
-    def init_connection(self, xml_file):
+    def init_connection(self, xml_file=None):
+        if xml_file is None:
+            xml_file = os.path.abspath(os.path.join(__file__, "../../cfg/connection.xml"))
+
         try:
             super().__init__(xml_file, 'kc705', 0)
         except:
@@ -51,8 +51,11 @@ class Daq(DAQBoard_comm):
         resp = super().send_controller_command('controller_'+self.chip_id, cmd, value)
         return resp
 
+    def get_fifo_occupancy(self):
+        return super().get_fifo_occupancy(self.chip_id)
+
     def enable_readout(self, sections):
-        sections = onehot(sections)
+        sections = onehot(sections) & onecold(self.sections_to_mask)
         self.send_controller_command('setTxDataEnable', sections)
 
     def custom_word(self, word, payload=0):
@@ -66,11 +69,23 @@ class Daq(DAQBoard_comm):
         self.send_controller_command('loadTSDeltaLSB', ((delta>>0)  & 0xfffff))
         self.send_controller_command('loadTSDeltaMSB', ((delta>>20) & 0xfffff))
 
+    def calibrate_serializers(self):
+        self.sync_mode()
+        response = self.cal_serdes_idealy('controller_'+self.chip_id)
+        self.normal_mode()
+
+        lanes = []
+        for i in range(16):
+            if ((response >> i) & 0b1):
+                lanes.append(i)
+
+        return lanes
+
     def set_timestamp_period(self, period):
         period = period
         self.send_controller_command('writeTimeStampPeriod', (period & 0xffff))
 
-    def __init__(self, xml_file='connection.xml'):
+    def __init__(self, xml_file=None):
         self.init_connection(xml_file)
 
     # Chip commands
@@ -198,17 +213,27 @@ class Daq(DAQBoard_comm):
         self.pixels_cfg(0b11, sections, columns, prs, master, pixels)
 
     # Injection
-    def send_tp(self, pulses=1):
-        super().send_pulse(self.chip_id, 998, 999, pulses)
+    def send_tp(self, pulses=1, t_on=1000, t_off=1000):
+        t_on = t_on-2 if (t_on > 2) else t_on
+        t_off = t_off-1 if (t_off > 1) else t_off
+        super().send_pulse(self.chip_id, int(t_on), int(t_off), pulses)
 
     # FPGA commands
     def sync(self):
         self.send_controller_command('syncTX', 0xffff)
         ret, response = self.send_controller_command('readTxState', 0)
-        return response
+
+        lanes = []
+        for i in range(16):
+            if ((response >> i) & 0b1):
+                lanes.append(i)
+
+        return lanes
 
     def reset_fifo(self):
         super().reset_fifo(self.chip_id)
+
+        time.sleep(1)
 
     def listen(self, packets=128):
         self.daq_read(self.chip_id, 'dout', packets)
@@ -218,3 +243,7 @@ class Daq(DAQBoard_comm):
     def listen_loop(self, stopafter=0, timeout=0, idletimeout=0):
         if (self.start_daq(self.chip_id, stopafter, timeout, idletimeout, 'dout') != 0):
             raise Exception('Fail to start DAQ')
+
+        self.wait_daq_finished()
+     
+        return self.get_packet_count(self.chip_id)

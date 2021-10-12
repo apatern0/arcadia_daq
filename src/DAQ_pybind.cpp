@@ -79,7 +79,8 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 
 		.def("reset_fifo", &DAQBoard_comm::reset_fifo)
 		.def("daq_read", &DAQBoard_comm::daq_read)
-		.def("start_daq", &DAQBoard_comm::start_daq)
+		.def("start_daq", &DAQBoard_comm::start_daq, py::call_guard<py::gil_scoped_release>())
+
 		.def("stop_daq", &DAQBoard_comm::stop_daq)
 		.def("wait_daq_finished", &DAQBoard_comm::wait_daq_finished)
 

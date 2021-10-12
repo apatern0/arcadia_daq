@@ -4,7 +4,6 @@
 #include <stdexcept>
 #include <chrono>
 
-
 #include "ini.h"
 #include "DAQBoard_comm.h"
 
@@ -531,7 +530,6 @@ void DAQBoard_comm::dump_DAQBoard_reg(){
 void DAQBoard_comm::daq_read(std::string chip_id, const std::string fname, uint32_t stopafter) {
 	const std::string filename = fname + chip_id + ".raw";
 
-	const uhal::Node& Node_fifo_occupancy = lHW.getNode("fifo_" + chip_id + ".occupancy");
 	const uhal::Node& Node_fifo_data = lHW.getNode("fifo_" + chip_id + ".data");
 	std::ofstream outstrm(filename, std::ios::out | std::ios::trunc | std::ios::binary);
 
@@ -540,19 +538,11 @@ void DAQBoard_comm::daq_read(std::string chip_id, const std::string fname, uint3
 
 	chip_stuctmap[chip_id]->packet_count = 0;
 
-	uhal::ValWord<uint32_t> fifo_occupancy = Node_fifo_occupancy.read();
-	lHW.dispatch();
-
-	uint32_t occupancy = (fifo_occupancy.value() & 0x1ffff);
-
-	if (occupancy == 0)
-		return;
-
-	if (occupancy > Node_fifo_data.getSize())
-		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value");
+	uint32_t occupancy = get_fifo_occupancy(chip_id);
 
 	chip_stuctmap[chip_id]->packet_count += occupancy;
 
+	stopafter *= 2;
 	occupancy = (occupancy > stopafter) ? stopafter : occupancy;
 	uhal::ValVector<uint32_t> data = Node_fifo_data.readBlock(occupancy);
 	lHW.dispatch();
@@ -567,13 +557,11 @@ void DAQBoard_comm::daq_read(std::string chip_id, const std::string fname, uint3
 	outstrm.close();
 }
 
-
 void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout){
 
 	const std::string filename = fname + chip_id + ".raw";
 
-	const uhal::Node& Node_fifo_occupancy = lHW.getNode("fifo_" + chip_id + ".occupancy");
 	const uhal::Node& Node_fifo_data = lHW.getNode("fifo_" + chip_id + ".data");
 	std::ofstream outstrm(filename, std::ios::out | std::ios::trunc | std::ios::binary);
 
@@ -590,26 +578,9 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 	const double alpha = 1.0/max_iter;
 
 	while (chip_stuctmap[chip_id]->run_flag){
-		uhal::ValWord<uint32_t> fifo_occupancy = Node_fifo_occupancy.read();
-		lHW.dispatch();
-
-		uint32_t occupancy = (fifo_occupancy.value() & 0x1ffff);
-
-		if (occupancy != 0)
-			idle_start_time = std::chrono::steady_clock::now();
-
-		// print very rough statistics
-		if (verbose) {
-			acc = (alpha * occupancy) + (1.0 - alpha) * acc;
-			iter++;
-			max_occ = std::max(max_occ, occupancy);
-			if (iter == max_iter){
-				std::cout << chip_id << ": " << (int)acc <<  " peak: " << max_occ << std::endl;
-				iter=0;
-				max_occ=0;
-			}
-		}
-
+		/*
+		 * Check timeouts
+		 */
 		std::chrono::steady_clock::time_point time_now = std::chrono::steady_clock::now();
 		uint32_t elapsed_secs =
 			std::chrono::duration_cast<std::chrono::seconds>(time_now-start_time).count();
@@ -635,21 +606,47 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 			}
 		}
 
+		/*
+		 * No timeouts -> Continue!
+		 */
+		uint32_t occupancy = get_fifo_occupancy(chip_id);
+
 		if (occupancy == 0)
 			continue;
+		
+		idle_start_time = std::chrono::steady_clock::now();
 
-		if (occupancy > Node_fifo_data.getSize())
-			throw std::runtime_error("DAQ board returned an invalid fifo occupancy value");
+		// print very rough statistics
+		if (verbose) {
+			acc = (alpha * occupancy) + (1.0 - alpha) * acc;
+			iter++;
+			max_occ = std::max(max_occ, occupancy);
+			if (iter == max_iter){
+				std::cout << chip_id << ": " << (int)acc <<  " peak: " << max_occ << std::endl;
+				iter=0;
+				max_occ=0;
+			}
+		}
 
-		chip_stuctmap[chip_id]->packet_count += occupancy;
+		uint32_t to_read;
+		if(stopafter) {
+			to_read = (stopafter - chip_stuctmap[chip_id]->packet_count)*2;
+			if(to_read > occupancy)
+				to_read = occupancy;
+		} else
+			to_read = occupancy;
 
-		uhal::ValVector<uint32_t> data = Node_fifo_data.readBlock(occupancy);
+		uhal::ValVector<uint32_t> data = Node_fifo_data.readBlock(to_read); // Occupancy returns 32-bit packets at a time
 		lHW.dispatch();
 
-		if (data.size() < occupancy){
+		uint32_t read = data.size();
+
+		if (read < to_read){
 			std::cout << "fail to read data" << std::endl;
 			continue;
 		}
+
+		chip_stuctmap[chip_id]->packet_count += read/2;
 
 		outstrm.write((char*)data.value().data(), data.size()*4);
 		outstrm.flush();
@@ -718,24 +715,28 @@ int DAQBoard_comm::wait_daq_finished(){
 
 
 uint32_t DAQBoard_comm::get_fifo_occupancy(std::string chip_id){
-
 	if (!chipid_valid(chip_id)){
 		std::cerr << "unknown id: " << chip_id << std::endl;
 		return 0;
 	}
 
+	const uhal::Node& Node_fifo_data = lHW.getNode("fifo_" + chip_id + ".data");
 	const uhal::Node& Node_fifo_occupancy = lHW.getNode("fifo_" + chip_id + ".occupancy");
-	lHW.dispatch();
 	uhal::ValWord<uint32_t> fifo_occupancy = Node_fifo_occupancy.read();
 	lHW.dispatch();
 	uint32_t occupancy = (fifo_occupancy.value() & 0x1ffff);
+	
+	if (occupancy > Node_fifo_data.getSize())
+		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value (> fifo size)");
 
-	return occupancy;
+	if (occupancy % 2)
+		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value (odd instead of even)");
+
+	return (uint32_t) occupancy/2;
 }
 
 
 uint32_t DAQBoard_comm::get_packet_count(std::string chip_id){
-
 	if (!chipid_valid(chip_id)){
 		std::cerr << "unknown id: " << chip_id << std::endl;
 		return 0;
@@ -759,6 +760,7 @@ int DAQBoard_comm::reset_fifo(std::string chip_id){
 
 	const uhal::Node& node_fifo_reset = lHW.getNode("fifo_" + chip_id + ".reset");
 	node_fifo_reset.write(0xffffffff);
+	lHW.dispatch();
 
 	std::cout << chip_id << " : reset sent" << std::endl;
 
@@ -766,7 +768,7 @@ int DAQBoard_comm::reset_fifo(std::string chip_id){
 }
 
 
-int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
+uint32_t DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 
 	const int TAP_VALUES = 32;
 	const int LANES = 16;
@@ -786,52 +788,87 @@ int DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 			send_controller_command(controller_id, ss.str(), tap_val, NULL);
 		}
 
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		send_controller_command(controller_id, "syncTX", 0xffff, NULL);
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 		send_controller_command(controller_id, "resetCounters", 1, NULL);
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-		uint32_t status;
-		//send_controller_command(controller_id, "readTxState", 0, &status);
-		//TODO:verify status
-		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		uint32_t locked;
+		send_controller_command(controller_id, "readTxState", 0, &locked);
 
 		for(int lane = 0; lane < LANES; lane++){
+			if(((locked >> lane) & 0b1) == 0) {
+				calibration_array[lane][tap_val] = 0xffff;
+				continue;
+			}
+
+			uint32_t status;
 			send_controller_command(controller_id, "read8b10bErrCounters", lane*2, &status);
 			calibration_array[lane][tap_val] = status&0xffff;
 		}
 
 	}
 
-
 	uint32_t best_taps[LANES] = {0};
-	for (int lane = 0; lane < LANES; lane++){
-		int avg = 0;
-		int num = 0;
+	for (int lane = 0; lane < LANES; lane++) {
+		int start   = -1;
+		int stop    = -1;
+		int restart = -1;
 
-		for(int tap_val=0; tap_val < TAP_VALUES; tap_val++){
-			std::cout << calibration_array[lane][tap_val] << "  ";
-			if (calibration_array[lane][tap_val] == 0){
-				avg += tap_val;
-				num++;
-			}
+		for(int tap_val=0; tap_val < TAP_VALUES; tap_val++) {
+			std::cout << std::hex << calibration_array[lane][tap_val] << " ";
+			if (calibration_array[lane][tap_val] == 0) {
+				if(start == -1)
+					start = tap_val;
+				else if(stop != -1 && restart == -1)
+					restart = tap_val;
+			} else if(start != -1 && stop == -1)
+				stop = tap_val;
 		}
 
 		std::cout << std::endl;
 
-		if (num == 0){
+		if (start == -1)
 			std::cerr << "Error: can't find optimal taps in lane: " << lane << std::endl;
-		}
 		else {
-			avg /= num;
-			best_taps[lane] = avg;
-		}
+			if(stop == -1)
+				stop = TAP_VALUES;
 
+			if(restart != -1)
+				start = restart - TAP_VALUES;
+
+			int avg = (stop+start)/2;
+
+			best_taps[lane] = (avg < 0) ? TAP_VALUES+avg : avg;
+		}
 	}
 
 
 	for(int lane = 0; lane < LANES; lane++){
-		std::cout << "setIDELAYTap" << std::hex << lane << "="
-			<< best_taps[lane] << std::endl;
+		std::stringstream ss;
+		ss << "setIDELAYTap" << std::hex << lane;
+		send_controller_command(controller_id, ss.str(), best_taps[lane], NULL);
 	}
 
-	return 0;
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	send_controller_command(controller_id, "syncTX", 0xffff, NULL);
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	send_controller_command(controller_id, "resetCounters", 1, NULL);
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+	uint32_t locked;
+	send_controller_command(controller_id, "readTxState", 0, &locked);
+
+	for(int lane = 0; lane < LANES; lane++){
+		uint32_t status, errors;
+		send_controller_command(controller_id, "read8b10bErrCounters", lane*2, &errors);
+		errors &= 0xffff;
+
+		status = (errors == 0) ? 0 : 1;
+		locked = locked & ~(status << lane);
+		printf("Lane %d errors %d status %d locked %x\n", lane, errors, status, locked);
+	}
+
+	return locked;
 }

@@ -242,7 +242,7 @@ public:
 	uint32_t get_packet_count(std::string chip_id);
 	uint32_t get_fifo_occupancy(std::string chip_id);
 
-	int cal_serdes_idealy(std::string contrller_id);
+	uint32_t cal_serdes_idealy(std::string contrller_id);
 
 };
 #endif

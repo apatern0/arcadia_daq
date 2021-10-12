@@ -29,6 +29,8 @@ class PixelData(Packet):
     ts      = 0
     ts_ext  = 0
     ts_fpga = 0
+    ts_sw   = 0
+    ts_base = 0
     last_tp = 0
     binstr = ""
     pixels = []
@@ -36,17 +38,20 @@ class PixelData(Packet):
     def to_string(self):
         packet_info = "%s - SER[%2d] @ [%2d][%3d][%2x] = %s (%1d)" % (self.binstr, self.ser, self.sec, self.col, self.corepr, format(self.hitmap, '#010b'), self.bottom)
 
-        ts_info = "%u [ %u us - %u (TP-CHIP) - %u (TP-DAQ) ]" % (
+        ts_info = "%u [ %u us - %u (TP-CHIP) - %u (TP-DAQ) - %u (TS_SW) ]" % (
             self.ts_ext-self.ts_base,
             (self.ts_ext-self.ts_base)*1E6/self.ts_hz,
             (self.ts_ext-self.last_tp     )*1E6/self.ts_hz,
-            (self.ts_fpga-self.last_tp    )*1E6/self.ts_hz
+            (self.ts_fpga-self.last_tp    )*1E6/self.ts_hz,
+            self.ts_sw
         )
 
         return "%s @ %s" % (packet_info, ts_info)
 
 class TestPulse(Packet):
     ts = 0
+    ts_sw = 0
+    ts_base = 0
     binstr = ""
 
     def to_string(self):
@@ -63,6 +68,8 @@ class CustomWord(Packet):
 class DataAnalysis:
     """ Analyses data from chip """
     raw_file = "doutid0.raw"
+    file = None
+    file_ptr = 0
 
     packets = []
 
@@ -76,33 +83,41 @@ class DataAnalysis:
 
     ts_base = -1
     ts_hz = 320E6
+    ts_sw = 0
 
     logger = None
 
     def __init__(self):
         self.file = open(self.raw_file, "rb")
         self.file.seek(0,2) # Go to the end of the file
+        self.file_ptr = self.file.tell()
 
     def reverse_bitorder(self, byte):
         return int('{:08b}'.format(byte)[::-1], 2)
 
     def skip(self):
         self.file.seek(0,2)
+        self.file_ptr = self.file.tell()
 
     def analyze(self):
         slept = 0
         read = 0
         last_tp = 0
+        self.logger.info("Starting readout on byte %d" % self.file_ptr)
         while True:
             word = self.file.read(8)
-            if (len(word) < 8):
-                self.file.seek(-len(word), 2)
+            lw = len(word)
+            if (lw < 8):
+                self.logger.warning(f"Read {lw} bytes out of 8. Mmm.. rolling back for now")
+                self.file.seek(self.file_ptr)
                 if(read == 0 and slept < 3):
                     time.sleep(0.5)
                     slept += 0.5
                     continue
                 else:
                     break
+
+            self.file_ptr = self.file.tell()
 
             read += 1
             byte0 = word[4]
@@ -123,22 +138,27 @@ class DataAnalysis:
             self.logger.info("Packet: %s - %s" % (strh, strb))
 
             # Check packet type
-            if ((byte7>>4) == 0xa):
+            if ((byte7>>4) == 0xf):
+                self.ts_sw += 1
+
+                continue
+
+            elif ((byte7>>4) == 0xa):
                 tp = TestPulse()
                 tp.ts = (byte2 << 16) | (byte1 << 8) | byte0
                 tp.binstr = strh
 
                 if(read == 1):
-                    print("Setting ts_base to %u" % tp.ts)
                     self.ts_base = tp.ts
 
                 tp.ts_base = self.ts_base
                 tp.ts_hz = self.ts_hz
+                tp.ts_sw = self.ts_sw
 
                 self.logger.info("Found test pulse @ %x" % tp.ts)
                 self.packets.append(tp)
 
-                last_tp = tp.ts
+                last_tp = (self.ts_sw << 24) | tp.ts
 
                 continue
 
@@ -160,12 +180,14 @@ class DataAnalysis:
             packet.sec     = (byte2 >> 4) & 0x0F
             packet.ts      = byte3
             packet.ts_fpga = (byte6 << 16) | (byte5 << 8) | byte4
+            packet.ts_sw   = self.ts_sw
 
             ts_fpga_msb = (packet.ts_fpga & 0xffff00)
             ts_fpga_lsb = (packet.ts_fpga & 0xff)
-            ts_fpga_msb = ts_fpga_msb if (ts_fpga_lsb < packet.ts) else (ts_fpga_msb-0x100)
+            if (packet.ts > ts_fpga_lsb):
+                ts_fpga_msb = (ts_fpga_msb-0x100)
 
-            packet.ts_ext  = ts_fpga_msb | packet.ts
+            packet.ts_ext  = (self.ts_sw << 24) | ts_fpga_msb | packet.ts
             packet.ser     = byte7 & 0xF
             packet.binstr = strh
             packet.pixels = []
@@ -204,6 +226,8 @@ class DataAnalysis:
             self.prs[packet.sec*16+packet.col][packet.corepr] += 1
 
             self.tot += 1
+
+        return read
 
     def cleanup(self):
         self.packets.clear()
