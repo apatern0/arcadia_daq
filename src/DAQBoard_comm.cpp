@@ -19,7 +19,6 @@
 
 #define SPI_CLOCK_DIV 7
 
-
 DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device_id,
 		bool verbose) :
 		verbose(verbose),
@@ -43,7 +42,6 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 
 	}
 
-
 	// init firmware spi controller
 	for (std::string id: {"id0", "id1", "id2"}){
 
@@ -59,9 +57,9 @@ DAQBoard_comm::DAQBoard_comm(std::string connection_xml_path,	std::string device
 			chip_stuctmap[id]->spi_unavaiable = true;
 			std::cerr << "SPI core " << spi_id << " configuration fail" << std::endl;
 		}
-
 	}
 
+	max_packets = 512*1024*1024/64;
 }
 
 
@@ -135,7 +133,6 @@ int DAQBoard_comm::read_conf(std::string fname){
 
 	return 0;
 }
-
 
 int DAQBoard_comm::spi_transfer(ARCADIA_command command, uint16_t payload,
 		std::string chip_id, uint32_t* rcv_data){
@@ -515,56 +512,57 @@ void DAQBoard_comm::dump_DAQBoard_reg(){
 
 }
 
-
-void DAQBoard_comm::daq_read(std::string chip_id, const std::string fname, uint32_t stopafter) {
-	const std::string filename = fname + chip_id + ".raw";
-
+int DAQBoard_comm::daq_read(std::string chip_id, uint32_t stopafter) {
 	const uhal::Node& Node_fifo_data = lHW.getNode("fifo_" + chip_id + ".data");
-	std::ofstream outstrm(filename, std::ios::out | std::ios::trunc | std::ios::binary);
+	uint32_t packets_fifo = get_fifo_occupancy(chip_id);
 
-	if (!outstrm.is_open())
-		throw std::runtime_error("Can't open file for write");
+	if (packets_fifo == 0)
+		return -1;
 
-	chip_stuctmap[chip_id]->packet_count = 0;
-
-	uint32_t occupancy = get_fifo_occupancy(chip_id);
-
-	chip_stuctmap[chip_id]->packet_count += occupancy;
-
-	stopafter *= 2;
-	occupancy = (occupancy > stopafter) ? stopafter : occupancy;
-	uhal::ValVector<uint32_t> data = Node_fifo_data.readBlock(occupancy);
-	lHW.dispatch();
-
-	if (data.size() < occupancy){
-		std::cout << "fail to read data" << std::endl;
-		return;
+	if (chip_stuctmap[chip_id]->packet_count > max_packets) {
+		std::cerr << "Currently reached maximum packets. Dropping " << packets_fifo << std::endl;
+		Node_fifo_data.readBlock(packets_fifo*2);
+		sleep(1);
+		return -1;
 	}
 
-	outstrm.write((char*)data.value().data(), data.size()*4);
+	uint32_t packets_to_read;
+	if(stopafter) {
+		packets_to_read = stopafter - chip_stuctmap[chip_id]->packet_count;
+		if(packets_to_read > packets_fifo)
+			packets_to_read = packets_fifo;
+	} else
+		packets_to_read = packets_fifo;
 
-	outstrm.close();
+	uint32_t bytes_to_read = packets_to_read*2;
+	uhal::ValVector<uint32_t> data = Node_fifo_data.readBlock(bytes_to_read);
+	lHW.dispatch();
+
+	uint32_t bytes_read = data.size();
+
+	if (bytes_read < bytes_to_read){
+		std::cerr << "Read " << bytes_read << " from FIFO, instead of the requested " << bytes_to_read << std::endl;
+		return -1;
+	}
+
+	for (size_t index = 0; index < bytes_read-1; index += 2) {
+		uint64_t p = data[index];
+		p = (p << 32) | data[index+1];
+		packets.push_back( p );
+	}
+
+	chip_stuctmap[chip_id]->packet_count += bytes_read/2;
+
+	return bytes_read/2;
 }
 
-void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
+void DAQBoard_comm::daq_loop(std::string chip_id,
 		uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout){
 
-	const std::string filename = fname + chip_id + ".raw";
-
 	const uhal::Node& Node_fifo_data = lHW.getNode("fifo_" + chip_id + ".data");
-	std::ofstream outstrm(filename, std::ios::out | std::ios::trunc | std::ios::binary);
-
-	if (!outstrm.is_open())
-		throw std::runtime_error("Can't open file for write");
 
 	std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
 	std::chrono::steady_clock::time_point idle_start_time = start_time;
-	chip_stuctmap[chip_id]->packet_count = 0;
-
-	const int max_iter = 5000;
-	uint32_t iter = 0, max_occ = 0;
-	double acc = 0.0;
-	const double alpha = 1.0/max_iter;
 
 	while (chip_stuctmap[chip_id]->run_flag){
 		/*
@@ -598,73 +596,41 @@ void DAQBoard_comm::daq_loop(const std::string fname, std::string chip_id,
 		/*
 		 * No timeouts -> Continue!
 		 */
-		uint32_t occupancy = get_fifo_occupancy(chip_id);
 
-		if (occupancy == 0)
-			continue;
-		
 		idle_start_time = std::chrono::steady_clock::now();
-
-		// print very rough statistics
-		if (verbose) {
-			acc = (alpha * occupancy) + (1.0 - alpha) * acc;
-			iter++;
-			max_occ = std::max(max_occ, occupancy);
-			if (iter == max_iter){
-				std::cout << chip_id << ": " << (int)acc <<  " peak: " << max_occ << std::endl;
-				iter=0;
-				max_occ=0;
-			}
-		}
-
-		uint32_t to_read;
-		if(stopafter) {
-			to_read = (stopafter - chip_stuctmap[chip_id]->packet_count)*2;
-			if(to_read > occupancy)
-				to_read = occupancy;
-		} else
-			to_read = occupancy;
-
-		uhal::ValVector<uint32_t> data = Node_fifo_data.readBlock(to_read); // Occupancy returns 32-bit packets at a time
-		lHW.dispatch();
-
-		uint32_t read = data.size();
-
-		if (read < to_read){
-			std::cout << "fail to read data" << std::endl;
-			continue;
-		}
-
-		chip_stuctmap[chip_id]->packet_count += read/2;
-
-		outstrm.write((char*)data.value().data(), data.size()*4);
-		outstrm.flush();
+		int read = daq_read(chip_id, stopafter);
 
 		// stop if maxpkg found
 		if (stopafter != 0 && chip_stuctmap[chip_id]->packet_count >= stopafter)
 			chip_stuctmap[chip_id]->run_flag = false;
-
 	}
-
-	outstrm.close();
 }
 
 
 int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout,
-		uint32_t idle_timeout, std::string fname){
+		uint32_t idle_timeout){
 
 	if (!chipid_valid(chip_id)){
 		std::cerr << "can't start thread, unknown id: " << chip_id << std::endl;
 		return -1;
 	}
 
+	packets.reserve(50*1024*1024/64);
+
+	clear_packets(chip_id);
+
 	chip_stuctmap[chip_id]->run_flag = true;
 	chip_stuctmap[chip_id]->dataread_thread =
-		std::thread(&DAQBoard_comm::daq_loop, this, fname, chip_id, stopafter, timeout, idle_timeout);
+		std::thread(&DAQBoard_comm::daq_loop, this, chip_id, stopafter, timeout, idle_timeout);
 
 	//std::cout << chip_id << ": Data read thread started" << std::endl;
 
 	return 0;
+}
+
+void DAQBoard_comm::clear_packets(std::string chip_id) {
+	packets.clear();
+	chip_stuctmap[chip_id]->packet_count = 0;
 }
 
 
@@ -716,10 +682,10 @@ uint32_t DAQBoard_comm::get_fifo_occupancy(std::string chip_id){
 	uint32_t occupancy = (fifo_occupancy.value() & 0x1ffff);
 	
 	if (occupancy > Node_fifo_data.getSize())
-		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value (> fifo size)");
+		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value of " + std::to_string(occupancy) + "(> fifo size)");
 
 	if (occupancy % 2)
-		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value (odd instead of even)");
+		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value of " + std::to_string(occupancy) + " (odd instead of even)");
 
 	return (uint32_t) occupancy/2;
 }
@@ -751,7 +717,7 @@ int DAQBoard_comm::reset_fifo(std::string chip_id){
 	node_fifo_reset.write(0xffffffff);
 	lHW.dispatch();
 
-	std::cout << chip_id << " : reset sent" << std::endl;
+	//std::cout << chip_id << " : reset sent" << std::endl;
 
 	return 0;
 }
@@ -806,7 +772,7 @@ uint32_t DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 		int restart = -1;
 
 		for(int tap_val=0; tap_val < TAP_VALUES; tap_val++) {
-			std::cout << std::hex << calibration_array[lane][tap_val] << " ";
+			//std::cout << std::hex << calibration_array[lane][tap_val] << " ";
 			if (calibration_array[lane][tap_val] == 0) {
 				if(start == -1)
 					start = tap_val;
@@ -816,7 +782,7 @@ uint32_t DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 				stop = tap_val;
 		}
 
-		std::cout << std::endl;
+		//std::cout << std::endl;
 
 		if (start == -1)
 			std::cerr << "Error: can't find optimal taps in lane: " << lane << std::endl;
@@ -856,7 +822,7 @@ uint32_t DAQBoard_comm::cal_serdes_idealy(std::string controller_id){
 
 		status = (errors == 0) ? 0 : 1;
 		locked = locked & ~(status << lane);
-		printf("Lane %d errors %d status %d locked %x\n", lane, errors, status, locked);
+		//printf("Lane %d errors %d status %d locked %x\n", lane, errors, status, locked);
 	}
 
 	return locked;

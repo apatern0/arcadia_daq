@@ -1,4 +1,5 @@
 #include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
 #include "DAQBoard_comm.h"
 
 namespace py = pybind11;
@@ -22,12 +23,12 @@ void set_ipbus_loglevel(int level){
 
 }
 
-
 //TODO: find something cleaner for functions taking pointer arguments
 PYBIND11_MODULE(DAQ_pybind, m) {
 
 	py::class_<DAQBoard_comm>(m, "DAQBoard_comm")
 		.def(py::init<const std::string &, const std::string &, bool>())
+
 		.def("read_conf", &DAQBoard_comm::read_conf)
 
 		.def("spi_transfer", [](DAQBoard_comm &DAQ, ARCADIA_command command, uint16_t payload,
@@ -77,15 +78,27 @@ PYBIND11_MODULE(DAQ_pybind, m) {
 		.def("send_pulse", &DAQBoard_comm::send_pulse)
 		.def("dump_DAQBoard_reg", &DAQBoard_comm::dump_DAQBoard_reg)
 
+		.def("get_fifo_occupancy", &DAQBoard_comm::get_fifo_occupancy)
 		.def("reset_fifo", &DAQBoard_comm::reset_fifo)
+
 		.def("daq_read", &DAQBoard_comm::daq_read)
-		.def("start_daq", &DAQBoard_comm::start_daq, py::call_guard<py::gil_scoped_release>())
+		.def("start_daq", [](DAQBoard_comm &DAQ, std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout) {
+			py::gil_scoped_release release;
+			DAQ.start_daq(chip_id, stopafter, timeout, idle_timeout);
+			})
 
 		.def("stop_daq", &DAQBoard_comm::stop_daq)
 		.def("wait_daq_finished", &DAQBoard_comm::wait_daq_finished)
-
 		.def("get_packet_count", &DAQBoard_comm::get_packet_count)
-		.def("get_fifo_occupancy", &DAQBoard_comm::get_fifo_occupancy)
+
+		.def("readout", [](DAQBoard_comm &DAQ, std::string chip_id) {
+				//std::cout << "Fetching " << DAQ.packets.size() << " packets into array!" << std::endl;
+				auto result = py::array(DAQ.packets.size(), DAQ.packets.data());
+				DAQ.clear_packets(chip_id);
+				return result;
+				})
+		.def("clear_packets", &DAQBoard_comm::clear_packets)
+
 		.def("cal_serdes_idealy", &DAQBoard_comm::cal_serdes_idealy);
 
 	m.def("set_ipbus_loglevel", &set_ipbus_loglevel);

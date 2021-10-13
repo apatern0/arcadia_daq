@@ -6,6 +6,7 @@
 #include <thread>
 #include <atomic>
 #include <map>
+#include <list>
 
 #include "uhal/uhal.hpp"
 
@@ -203,12 +204,14 @@ private:
 	static int conf_handler(void* user, const char* section, const char* name,
 			const char* value);
 
-	void daq_loop(const std::string fname, std::string chip_id,
-			uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
+	void daq_loop(std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
 
 public:
 
 	DAQBoard_comm(std::string connection_xml_path, std::string device_id, bool verbose=false);
+
+	std::vector<uint64_t> packets;
+	size_t max_packets;
 
 	bool chipid_valid(std::string chip_id);
 	int read_conf(std::string fname);
@@ -227,6 +230,7 @@ public:
 	int send_controller_command(const std::string controller_id, const std::string cmd,
 			uint32_t arg, uint32_t* resp);
 
+	void clear_packets(std::string chip_id);
 	int read_fpga_register(std::string reg_handler, uint32_t* data);
 	int write_fpga_register(std::string reg_handler, uint32_t data);
 	int send_pulse(const std::string chip_id,
@@ -234,9 +238,8 @@ public:
 	void dump_DAQBoard_reg();
 	int reset_fifo(std::string chip_id);
 
-	void daq_read(std::string chip_id, const std::string fname, uint32_t stopafter);
-	int start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout,
-			std::string fname = "dout");
+	int daq_read(std::string chip_id, uint32_t stopafter);
+	int start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
 	int stop_daq(std::string chip_id);
 	int wait_daq_finished();
 	uint32_t get_packet_count(std::string chip_id);
