@@ -1,7 +1,7 @@
 from tqdm import tqdm
 import numpy as np
 
-from ..test import DaqListenP, Test, customplot
+from ..test import Test, customplot
 
 class ScanTest(Test):
     range = []

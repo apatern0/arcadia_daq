@@ -1,13 +1,14 @@
 import logging
 from tqdm import tqdm
 import time
-from pyarcadia.test import Test
+from pyarcadia.test import Test, DaqListen
 
-x = Test()
-x.daq.sections_to_mask = [5, 7, 13]
+x = Test(auto_read=False)
 x.set_timestamp_resolution(1E-6)
 
+print("Disabling readout")
 x.daq.enable_readout(0)
+
 x.daq.hard_reset()
 x.daq.reset_subsystem('chip', 1)
 x.daq.reset_subsystem('chip', 2)
@@ -41,13 +42,14 @@ pkts = x.daq.get_fifo_occupancy()
 print(f"Fifo has {pkts} packets. Resetting.")
 x.daq.reset_fifo()
 
-x.daq.enable_readout(synced)
+x.daq.enable_readout(0xffff)
 
 print("Enabled readout on synced lanes")
 print("Enabled pixels [0][0] in every section")
+x.daq.pixels_mask()
+x.daq.pixels_cfg(0b01, synced, [0], [0], [0], 0b1)
 x.daq.noforce_injection()
 x.daq.noforce_nomask()
-x.daq.pixels_cfg(0b01, synced, [0], [0], [0], 0b1)
 time.sleep(0.01)
 pkts = x.daq.get_fifo_occupancy()
 print(f"Fifo has {pkts} packets. Resetting.")
@@ -59,12 +61,16 @@ time.sleep(0.01)
 pkts = x.daq.get_fifo_occupancy()
 print(f"Fifo has {pkts} packets")
 x.analysis.cleanup()
-read = x.daq.listen_loop(17, 5, 1);  #x.daq.reset_fifo()
-x.analysis.file_ptr = 0 ;# Manually restart file pointer, as this will re-create raw file, not append!
-print("Readout %d packets:" % read)
-recv = x.analysis.analyze()
+
+x.reader = DaqListen(x.daq)
+x.reader.start()
+
+print("Sending 1 TPs")
+x.daq.send_tp(1)
+time.sleep(0.01)
+recv = x.readout()
 print("Analyzed %d packets:" % recv)
-x.analysis.dump(17)
+x.analysis.dump()
 
 """
 with tqdm(total=100, desc='Test') as bar:

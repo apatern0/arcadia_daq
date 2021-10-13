@@ -16,14 +16,7 @@ class BaselineScan(ScanTest):
 
     def pre_main(self):
         super().pre_main()
-        self.sections = list(range(2,6)) + list(range(7,15))
-        """
-        self.sections = []
-        for i in pixels:
-            section = math.floor(pixel[0]/32)
-            if(section not in self.sections):
-                self.sections.append(section)
-        """
+        self.sections = [x for x in range(16) if x not in self.daq.sections_to_mask]
 
         self.th     = [0]  * 16
         self.th_min = [1]  * 16
@@ -92,14 +85,7 @@ class FullBaselineScan(ScanTest):
 
     def pre_main(self):
         super().pre_main()
-        self.sections = list(range(2,6)) + list(range(7,15))
-        """
-        self.sections = []
-        for i in pixels:
-            section = math.floor(pixel[0]/32)
-            if(section not in self.sections):
-                self.sections.append(section)
-        """
+        self.sections = [x for x in range(16) if x not in self.daq.sections_to_mask]
 
         self.range  = range(1,64)
         self.result = np.zeros((16,64), int)
@@ -132,8 +118,7 @@ class FullBaselineScan(ScanTest):
 
     def post_main(self):
         super().post_main()
-        self.analysis.cleanup()
-        self.analysis.analyze()
+        self.readout(reset=True)
 
         iterator = iter(self.analysis.packets)
         packet = next(p for p in iterator if type(p) == CustomWord and p.word == 0xDEAFABBA);
@@ -161,7 +146,8 @@ class FullBaselineScan(ScanTest):
                 num = len(packets)
 
                 if(num < tps):
-                    raise RuntimeError("TH:%u - Section %u didn't receive the digitally injected packets." % (th, section))
+                    print("TH:%u - Section %u didn't receive the digitally injected packets." % (th, section))
+                    #raise RuntimeError("TH:%u - Section %u didn't receive the digitally injected packets." % (th, section))
 
             # Go on to noise packets
             if(type(packet) != CustomWord or packet.word != 0xBEEFBEEF or packet.payload != th):
@@ -207,10 +193,12 @@ class FullBaselineScan(ScanTest):
                 if(result_imshow[j][i] > 200):
                     result_imshow[j][i] = 200
 
-        ax.imshow(result_imshow)
+        image = ax.imshow(result_imshow)
 
+        """
         for i in range(64):
             for j in range(16):
                 text = ax.text(i, j, self.result[j][i],
                        ha="center", va="center", color="w")
-        return
+        """
+        return image

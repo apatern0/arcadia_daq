@@ -6,20 +6,11 @@ import subprocess, signal
 import configparser
 from tqdm import tqdm
 
+from . import bcolors
 from .daq import *
 from .analysis import *
 
 plt = matplotlib.pyplot
-
-"""
-def linearplot(axes, title):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args, **kwargs):
-            # can access all args
-        return wrapper
-    return decorator
-"""
 
 def customplot(axes, title):
     def decorator(f):
@@ -33,12 +24,15 @@ def customplot(axes, title):
         
             fig, ax = plt.subplots()
 
-            f(*args, **kwargs, ax=ax)
+            image = f(*args, **kwargs, ax=ax)
 
             ax.set(xlabel=axes[0], ylabel=axes[1], title=title)
-            ax.grid()
 
-            ax.legend()
+            ax.grid()
+            if isinstance(image, matplotlib.lines.Line2D) and ax.get_label() is not '':
+                ax.legend()
+            elif isinstance(image, matplotlib.image.AxesImage):
+                plt.colorbar(image, orientation='horizontal')
 
             if(saveas != None):
                 fig.savefig(f"{saveas}.pdf", bbox_inches='tight')
@@ -53,61 +47,29 @@ def customplot(axes, title):
         return wrapper
     return decorator
 
-class DaqListen(threading.Thread):
-    chip_id = None
-    process = None
+class DaqListen:
+    daq = None
+    active = False
 
-    def __init__(self, chip_id='id0'):
-        threading.Thread.__init__(self)
-        self.chip_id = chip_id
+    def __init__(self, daq):
+        self.daq = daq
 
     def __enter__(self):
-        self.run()
+        self.start()
 
-    def run(self):
-        print("Starting " + self.name)
-        self.process = Daq()
-        self.process.listen_loop()
-        print("Exiting " + self.name)
+    def __del__(self):
+        self.stop()
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self.stop()
 
-    def stop(self):
-        self.process.stop_daq(self.chip_id)
-
-    def is_active(self):
-        if self.process is None:
-            return False
-        elif self.process.poll() is None:
-            return True
-
-class DaqListenP(threading.Thread):
-    launchable = None
-    process = None
-
-    def __init__(self, chip_id='id0'):
-        threading.Thread.__init__(self)
-        xml_file = os.path.abspath(os.path.join(__file__, "../../cfg/connection.xml"))
-        self.launchable = ["bin/arcadia-cli", f"--daq={chip_id}", f"--conn={xml_file}"]
-
-    def __enter__(self):
-        self.run()
-
-    def run(self):
-        self.process = subprocess.Popen(self.launchable)
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        self.stop()
+    def start(self):
+        self.active = True
+        self.daq.listen_loop()
 
     def stop(self):
-        self.process.send_signal(signal.SIGINT)
-
-    def is_active(self):
-        if self.process is None:
-            return False
-        elif self.process.poll() is None:
-            return True
+        self.active = False
+        self.daq.stop_daq(self.daq.chip_id)
 
 class Test:
     logger = None
@@ -132,6 +94,7 @@ class Test:
         self.daq.logger = self.logger
         if 'sections_to_mask' in self.cfg:
             stm = self.cfg['sections_to_mask'].split(",")
+            print("Masking sections: ", end=""); print(stm)
             stm = [int(x) for x in stm]
             self.daq.sections_to_mask = stm
 
@@ -146,11 +109,12 @@ class Test:
         #ch.setLevel(logging.WARNING)
         self.logger.addHandler(ch)
 
-        if auto_read is True:
-            self.reader = DaqListenP()
-            self.daq.reset_fifo()
-            self.daq.enable_readout(0)
-            self.reader.start()
+        # Add Listener
+        self.reader = DaqListen(self.daq)
+
+    def __del__(self):
+        if self.reader is not None:
+            self.reader.stop()
 
     def load_cfg(self):
         if not os.path.isfile("./chip.ini"):
@@ -210,10 +174,71 @@ class Test:
         self.daq.normal_mode()
         self.daq.enable_readout(synced)
 
-        print("Synchronized lanes:", end='')
-        print(synced)
+        print("Synchronized lanes:", end=''); print(synced)
 
         return synced
+        
+    def check_stability(self):
+        for i in range(8):
+            self.daq.reset_fifo()
+            self.daq.clear_packets()
+            packets_in_fifo = self.daq.get_fifo_occupancy()
+            if packets_in_fifo != 0:
+                time.sleep(0.01)
+                continue
+            else:
+                return True
+
+        return False
+
+    def stabilize_lanes(self):
+        if self.reader.active:
+            self.reader.stop()
+
+        to_mask = []
+        iteration = 0
+        read = -1
+        while read != 0 and iteration < 5:
+            self.daq.enable_readout(onecold(to_mask, 0xffff))
+            self.daq.reset_fifo()
+            self.daq.clear_packets()
+            read = 0
+
+            if self.check_stability():
+                break
+
+            # Get a sample of the noisy data
+            analyzed = self.readout(30)
+            if analyzed == 0:
+                break
+
+            noisy_lanes = []
+            unsync_lanes = []
+            read = 0
+            for pkt in self.analysis.packets:
+                if isinstance(pkt, PixelData):
+                    read += 1
+                    if pkt.ser == pkt.sec and pkt.ser not in noisy_lanes:
+                        noisy_lanes.append(pkt.ser)
+                    elif pkt.ser not in unsync_lanes:
+                        unsync_lanes.append(pkt.ser)
+
+            if read == 0:
+                break
+
+            print(f"Iteration {iteration}. Found {read} Packets from:")
+            print("\tNoisy lanes: %s" % str(noisy_lanes))
+            print("\tUnsync lanes: %s" % str(unsync_lanes))
+
+            print("Synchronizing unsynchronized lanes, masking noisy ones...")
+            self.resync(unsync_lanes)
+            to_mask.extend(noisy_lanes)
+            iteration += 1
+
+        if read == 0:
+            self.daq.sections_to_mask.extend(to_mask)
+        else:
+            raise RuntimeError('Unable to stabilize the lanes!')
 
     def timestamp_sync(self):
         self.daq.pixels_mask()
@@ -221,13 +246,12 @@ class Test:
         self.daq.noforce_nomask()
 
         self.daq.set_timestamp_delta(0)
-        self.daq.enable_readout(0xffff)
         self.daq.pixels_cfg(0b01, 0x000f, [0], [0], [0], 0xF)
-
-        self.analysis.skip()
+    
+        self.daq.reset_fifo()
+        self.daq.clear_packets()
         self.daq.send_tp(1)
-
-        self.readout(10)
+        self.readout(30)
 
         tp = filter(lambda x:(type(x) == TestPulse), self.analysis.packets)
         data = filter(lambda x:(type(x) == PixelData), self.analysis.packets)
@@ -267,46 +291,61 @@ class Test:
 
         self.daq.set_timestamp_delta(ts_delta)
 
-    def initialize(self):
+    def initialize(self, auto_read=True):
         for i in range(4):
             ok = True
+
+            # Initialize chip
             lanes = self.chip_init()
+            to_mask = [item for item in list(range(16)) if item not in lanes and item not in self.daq.sections_to_mask]
+            self.daq.sections_to_mask.extend(to_mask)
+
+            # Check and stabilize the lanes
+            self.stabilize_lanes()
+
             try:
                 self.timestamp_sync()
             except RuntimeError:
                 ok = False
-                self.logger.warning("Initialization trial %d KO. Re-trying..." % i)
+                self.logger.warning("Initialization trial %d KO. Re-trying...", i)
 
-            if(ok):
+            if ok:
+                if auto_read:
+                    self.daq.reset_fifo()
+                    self.reader.start()
+    
                 return
-        
+
         raise RuntimeError('Unable to receive data from the chip!')
 
-    def resync(self):
+    def resync(self, lanes=0xffff):
         self.daq.sync_mode()
         time.sleep(0.1)
-        synced = self.daq.sync()
+        synced = self.daq.sync(lanes)
         self.daq.normal_mode()
+        time.sleep(0.1)
 
         return synced
 
-    def readout(self, max_packets=None, fail_on_error=True):
-        self.analysis.cleanup()
-        in_fifo = self.daq.get_fifo_occupancy()
+    def readout(self, max_packets=None, fail_on_error=True, reset=True):
+        if reset is True:
+            self.analysis.cleanup()
 
-        if(in_fifo == 0):
-            return 0
+        if not self.reader.active:
+            in_fifo = self.daq.get_fifo_occupancy()
 
-        to_read = min(in_fifo, max_packets) if max_packets is not None else in_fifo
-        readout = self.daq.listen_loop(to_read, 5, 1)
+            if(in_fifo == 0):
+                return 0
 
-        if(readout != to_read and fail_on_error):
-            raise ValueError(f'Readout {readout} out of {to_read}')
+            packets_to_read = min(in_fifo, max_packets) if max_packets is not None else in_fifo
+            packets_read = self.daq.readout_burst(packets_to_read)
+    
+            if(packets_read < packets_to_read and fail_on_error):
+                raise ValueError(f'Readout {packets_read} out of {packets_to_read}')
+        else:
+            max_packets = None
 
-        self.analysis.file_ptr = 0
-        analyzed = self.analysis.analyze()
-
-        if(analyzed != to_read and fail_on_error):
-            raise ValueError(f'Analyzed {analyzed} out of {to_read}')
+        readout = self.daq.readout()
+        analyzed = self.analysis.analyze(readout)
 
         return analyzed

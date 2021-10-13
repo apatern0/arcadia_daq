@@ -22,14 +22,10 @@ class ThresholdScan(ScanTest):
         self.daq.clock_enable(0xffff)
         self.daq.injection_enable(0xffff)
 
-        self.analysis.file.seek(0, 2)
+        self.daq.clear_packets()
         self.daq.send_tp(1)
         time.sleep(0.1)
-        self.analysis.cleanup(); self.analysis.analyze()
-
-        self.daq.send_tp(1)
-        time.sleep(0.1)
-        self.analysis.cleanup(); self.analysis.analyze()
+        read = self.readout(reset=True)
 
         self.pixels = {}
 
@@ -49,7 +45,11 @@ class ThresholdScan(ScanTest):
             if(packet.sec not in self.sections):
                 self.sections.append(packet.sec)
 
+        if counter == 0:
+            raise ValueError("No pixels have been selected!")
+
         self.range  = range(0,64)
+        print("Changing biases on sections: ", end=""); print(self.sections)
 
     def pre_loop(self):
         for section in self.sections:
@@ -86,7 +86,7 @@ class ThresholdScan(ScanTest):
     def post_main(self):
         super().post_main()
         print("Now analysing results...")
-        self.analysis.analyze()
+        self.readout(reset=True)
 
         iterator = iter(self.analysis.packets)
         packet = next(p for p in iterator if type(p) == CustomWord and p.word == 0xDEAFABBA);

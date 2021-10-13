@@ -1,3 +1,17 @@
+##
+# @file daq.py
+#
+# @brief Defines the DAQ Class for DAQ/Chip interation
+#
+# @section description_daq Description
+# Defines the base operations that can be performed on the DAQ and the Chip
+#
+# @section todo_daq TODO
+# - None.
+#
+# @section author_daq Author(s)
+# - Created by Andrea Paternò <andrea.paterno@to.infn.it>
+
 import os, sys, argparse, time, logging
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,6 +20,17 @@ from DAQ_pybind import DAQBoard_comm, set_ipbus_loglevel
 set_ipbus_loglevel(0)
 
 def onehot(bits, base=0x0000):
+    """One-hot encodes a list of bit positions
+
+    :param bits: The bits to set (list or one-hot encoded value)
+    :type bits: List or one-hot encoded integer
+
+    :param base: Base value on which to apply the one-hot encoding
+    :type base: int
+
+    :return: One-hot encoded value
+    :rtype: int
+    """
     if(isinstance(bits, list)):
         onehot = 0x0000
         for item in bits:
@@ -16,14 +41,35 @@ def onehot(bits, base=0x0000):
     return bits | base
 
 def onecold(bits, base=0xffff):
+    """One-cold encodes a list of bit positions
+
+    :param bits: The bits to set (list or one-cold encoded value)
+    :type bits: List or one-cold encoded integer
+
+    :param base: Base value on which to apply the one-cold encoding
+    :type base: int
+
+    :return: One-cold encoded value
+    :rtype: int
+    """
     return ~onehot(bits) & base
 
 class Daq(DAQBoard_comm):
-    """ Communicate with Chip """
+    """This class is used to communicate with the FPGA
+
+    :ivar chip_id: Chip identification. Default: id0
+    :ivar sections_to_mask: Sections to filter out during FPGA readout
+    """
+
     chip_id = 'id0'
-    sections_to_mask = 0
+    sections_to_mask = []
 
     def init_connection(self, xml_file=None):
+        """Initializes connectivity with the FPGA through IPBus
+
+        :param xml_file: Connection XML file location
+        :type xml_file: string
+        """
         if xml_file is None:
             xml_file = os.path.abspath(os.path.join(__file__, "../../cfg/connection.xml"))
 
@@ -36,25 +82,88 @@ class Daq(DAQBoard_comm):
     # Overriding some methods to improve usability
 
     def write_gcrpar(self, gcrpar, value):
+        """Writes a GCR field
+
+        :param gcrpar: GCR field name as in the ARCADIA Configuration file
+        :type gcrpar: string
+
+        :param value: Value to be written in the GCR field
+        :type value: int
+        """
         self.logger.debug("Writing GCR_PAR[%s] = 0x%x" % (gcrpar, value))
         super().write_gcrpar(self.chip_id, gcrpar, value)
 
     def write_gcr(self, gcr, value):
+        """Writes a GCR
+
+        :param gcrpar: GCR name as in the ARCADIA Configuration file
+        :type gcrpar: string
+
+        :param value: Value to be written in the GCR
+        :type value: int
+        """
         self.logger.debug("Writing GCR[%2d] = 0x%x" % (gcr, value))
         super().write_gcr(self.chip_id, gcr, value)
 
     def write_icr(self, icr, value):
+        """Writes an ICR
+
+        :param gcrpar: ICR number
+        :type gcrpar: int
+
+        :param value: Value to be written in the ICR
+        :type value: int
+        """
         self.logger.debug("Writing ICR%1d = %x" % (icr, value))
         super().write_icr(self.chip_id, 'ICR%1d' % icr, value)
 
     def send_controller_command(self, cmd, value=0):
+        """Send a command to the FPGA Controller
+
+        :param cmd: Command name
+        :type cmd: string
+
+        :param value: Command payload
+        :type value: int, optional
+        """
         resp = super().send_controller_command('controller_'+self.chip_id, cmd, value)
         return resp
 
+    def clear_packets(self):
+        """Clear any packet that might have been readout
+        """
+        return super().clear_packets(self.chip_id)
+
     def get_fifo_occupancy(self):
+        """Get the current FPGA FIFO occupancy
+
+        :return: Data packets in the FPGA FIFO
+        :rtype: int
+        """
         return super().get_fifo_occupancy(self.chip_id)
 
+    def readout_burst(self, packets):
+        """Get `packets` readout from DAQ FIFO
+
+        :return: Number of packets readout
+        :rtype: int
+        """
+        return super().daq_read(self.chip_id, packets)
+
+    def readout(self):
+        """Fetch readout packets
+
+        :return: Data packets readout so far
+        :rtype: py::array_t
+        """
+        return super().readout(self.chip_id)
+
     def enable_readout(self, sections):
+        """Enable t
+
+        :return: Data packets in the FPGA FIFO
+        :rtype: int
+        """
         sections = onehot(sections) & onecold(self.sections_to_mask)
         self.send_controller_command('setTxDataEnable', sections)
 
@@ -219,8 +328,8 @@ class Daq(DAQBoard_comm):
         super().send_pulse(self.chip_id, int(t_on), int(t_off), pulses)
 
     # FPGA commands
-    def sync(self):
-        self.send_controller_command('syncTX', 0xffff)
+    def sync(self, lanes=0xffff):
+        self.send_controller_command('syncTX', onehot(lanes))
         ret, response = self.send_controller_command('readTxState', 0)
 
         lanes = []
@@ -233,17 +342,7 @@ class Daq(DAQBoard_comm):
     def reset_fifo(self):
         super().reset_fifo(self.chip_id)
 
-        time.sleep(1)
-
-    def listen(self, packets=128):
-        self.daq_read(self.chip_id, 'dout', packets)
-     
-        return self.get_packet_count(self.chip_id)
+        time.sleep(0.1)
 
     def listen_loop(self, stopafter=0, timeout=0, idletimeout=0):
-        if (self.start_daq(self.chip_id, stopafter, timeout, idletimeout, 'dout') != 0):
-            raise Exception('Fail to start DAQ')
-
-        self.wait_daq_finished()
-     
-        return self.get_packet_count(self.chip_id)
+        self.start_daq(self.chip_id, stopafter, timeout, idletimeout)

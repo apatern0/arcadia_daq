@@ -559,8 +559,6 @@ int DAQBoard_comm::daq_read(std::string chip_id, uint32_t stopafter) {
 void DAQBoard_comm::daq_loop(std::string chip_id,
 		uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout){
 
-	const uhal::Node& Node_fifo_data = lHW.getNode("fifo_" + chip_id + ".data");
-
 	std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
 	std::chrono::steady_clock::time_point idle_start_time = start_time;
 
@@ -598,7 +596,7 @@ void DAQBoard_comm::daq_loop(std::string chip_id,
 		 */
 
 		idle_start_time = std::chrono::steady_clock::now();
-		int read = daq_read(chip_id, stopafter);
+		daq_read(chip_id, stopafter);
 
 		// stop if maxpkg found
 		if (stopafter != 0 && chip_stuctmap[chip_id]->packet_count >= stopafter)
@@ -607,9 +605,7 @@ void DAQBoard_comm::daq_loop(std::string chip_id,
 }
 
 
-int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout,
-		uint32_t idle_timeout){
-
+int DAQBoard_comm::start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout) {
 	if (!chipid_valid(chip_id)){
 		std::cerr << "can't start thread, unknown id: " << chip_id << std::endl;
 		return -1;

@@ -66,11 +66,6 @@ class CustomWord(Packet):
         return "%s -    WORD : 0x%x" % (self.binstr, self.word)
 
 class DataAnalysis:
-    """ Analyses data from chip """
-    raw_file = "doutid0.raw"
-    file = None
-    file_ptr = 0
-
     packets = []
 
     prs = np.zeros((256,128))
@@ -87,65 +82,35 @@ class DataAnalysis:
 
     logger = None
 
-    def __init__(self):
-        self.file = open(self.raw_file, "rb")
-        self.file.seek(0,2) # Go to the end of the file
-        self.file_ptr = self.file.tell()
-
     def reverse_bitorder(self, byte):
         return int('{:08b}'.format(byte)[::-1], 2)
 
-    def skip(self):
-        self.file.seek(0,2)
-        self.file_ptr = self.file.tell()
-
-    def analyze(self):
+    def analyze(self, packets):
         slept = 0
         read = 0
         last_tp = 0
-        self.logger.info("Starting readout on byte %d" % self.file_ptr)
-        while True:
-            word = self.file.read(8)
-            lw = len(word)
-            if (lw < 8):
-                self.logger.warning(f"Read {lw} bytes out of 8. Mmm.. rolling back for now")
-                self.file.seek(self.file_ptr)
-                if(read == 0 and slept < 3):
-                    time.sleep(0.5)
-                    slept += 0.5
-                    continue
-                else:
-                    break
-
-            self.file_ptr = self.file.tell()
-
+        for packet in packets:
+            packet = int(packet)
             read += 1
-            byte0 = word[4]
-            byte1 = word[5]
-            byte2 = word[6]
-            byte3 = word[7]
-            byte4 = word[0]
-            byte5 = word[1]
-            byte6 = word[2]
-            byte7 = word[3]
+            word = [(packet >> 8*x) & 0xff for x in range(8)]
 
             strh = ""
             strb = ""
-            for i in [3, 2, 1, 0, 7, 6, 5, 4]:
-                strh = strh + "%2x " % word[i]
-                strb = strb + format(word[i], '#010b') + " "
+            for i in range(8):
+                strh = strh + "%2x " % word[7-i]
+                strb = strb + format(word[7-i], '#010b') + " "
 
             self.logger.info("Packet: %s - %s" % (strh, strb))
 
             # Check packet type
-            if ((byte7>>4) == 0xf):
+            if ((word[7]>>4) == 0xf):
                 self.ts_sw += 1
 
                 continue
 
-            elif ((byte7>>4) == 0xa):
+            elif ((word[7]>>4) == 0xa):
                 tp = TestPulse()
-                tp.ts = (byte2 << 16) | (byte1 << 8) | byte0
+                tp.ts = (word[2] << 16) | (word[1] << 8) | word[0]
                 tp.binstr = strh
 
                 if(read == 1):
@@ -162,24 +127,24 @@ class DataAnalysis:
 
                 continue
 
-            elif ((byte7>>4) == 0xc):
+            elif ((word[7]>>4) == 0xc):
                 c = CustomWord()
                 c.binstr = strh
-                c.word = (byte6 << 40) | (byte5 << 32) | (byte4 << 24) | (byte3 << 16) | (byte2 << 8) | byte1
-                c.payload = byte0
+                c.word = (word[6] << 40) | (word[5] << 32) | (word[4] << 24) | (word[3] << 16) | (word[2] << 8) | word[1]
+                c.payload = word[0]
                 self.packets.append(c)
         
                 continue
 
             # Split into fields
             packet = PixelData()
-            packet.bottom  = (byte0 >> 0) & 0x01
-            packet.hitmap  = (((byte1 >> 0) & 0x01) << 7) | ((byte0 >> 1) & 0x7F)
-            packet.corepr  = (byte1 >> 1) & 0x7F
-            packet.col     = (byte2 >> 0) & 0x0F
-            packet.sec     = (byte2 >> 4) & 0x0F
-            packet.ts      = byte3
-            packet.ts_fpga = (byte6 << 16) | (byte5 << 8) | byte4
+            packet.bottom  = (word[0] >> 0) & 0x01
+            packet.hitmap  = (((word[1] >> 0) & 0x01) << 7) | ((word[0] >> 1) & 0x7F)
+            packet.corepr  = (word[1] >> 1) & 0x7F
+            packet.col     = (word[2] >> 0) & 0x0F
+            packet.sec     = (word[2] >> 4) & 0x0F
+            packet.ts      = word[3]
+            packet.ts_fpga = (word[6] << 16) | (word[5] << 8) | word[4]
             packet.ts_sw   = self.ts_sw
 
             ts_fpga_msb = (packet.ts_fpga & 0xffff00)
@@ -188,7 +153,7 @@ class DataAnalysis:
                 ts_fpga_msb = (ts_fpga_msb-0x100)
 
             packet.ts_ext  = (self.ts_sw << 24) | ts_fpga_msb | packet.ts
-            packet.ser     = byte7 & 0xF
+            packet.ser     = word[7] & 0xF
             packet.binstr = strh
             packet.pixels = []
 
