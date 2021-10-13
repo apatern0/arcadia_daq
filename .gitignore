@@ -5,5 +5,5 @@ results
 *.so
 *.o
 __pycache__
-arcadia-cli
-chk_counter
+work/bin/*
+!work/bin/Makefile
