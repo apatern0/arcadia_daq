@@ -63,7 +63,7 @@ class CustomWord(Packet):
     payload = 0
 
     def to_string(self):
-        return "%s -    WORD : 0x%x" % (self.binstr, self.word)
+        return "%s -    WORD : 0x%x - PAYLOAD : 0x%x" % (self.binstr, self.word, self.payload)
 
 class DataAnalysis:
     packets = []
