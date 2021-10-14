@@ -179,6 +179,7 @@ class Test:
         self.daq.reset_subsystem('per', 1)
         self.daq.reset_subsystem('per', 2)
         self.daq.pixels_mask()
+        self.daq.write_gcrpar('LVDS_STRENGTH', 0b111)
         self.daq.sync_mode()
         time.sleep(1)
         synced = self.daq.sync()
@@ -208,60 +209,114 @@ class Test:
 
         to_mask = []
         iteration = 0
-        read = -1
-        while read != 0 and iteration < 5:
-            self.daq.enable_readout(onecold(to_mask, 0xffff))
-            self.daq.reset_fifo()
-            self.daq.clear_packets()
-            read = 0
+        while iteration < 5:
+            print(f"Synchronization iteration {iteration}...")
+            silence = False
+            while iteration < 5:
+                self.daq.enable_readout(onecold(to_mask, 0xffff))
+                self.daq.reset_fifo()
+                self.daq.clear_packets()
 
-            if self.check_stability():
+                if self.check_stability():
+                    silence = True
+                    break
+
+                # Get a sample of the noisy data
+                analyzed = self.readout(30)
+                if analyzed == 0:
+                    silence = True
+                    break
+
+                # Distinguish between noisy and unsync
+                noisy_lanes = []
+                unsync_lanes = []
+                read = 0
+                for pkt in self.analysis.packets:
+                    if isinstance(pkt, PixelData):
+                        read += 1
+                        if pkt.ser == pkt.sec and pkt.ser not in noisy_lanes:
+                            noisy_lanes.append(pkt.ser)
+                        elif pkt.ser not in unsync_lanes:
+                            unsync_lanes.append(pkt.ser)
+
+                if read == 0:
+                    silence = True
+                    break
+
+                print("\tNoisy lanes: %s\n\tUnsync lanes: %s" % (str(noisy_lanes), str(unsync_lanes)))
+
+                self.resync(0xffff) ;#self.resync(unsync_lanes)
+                to_mask.extend(noisy_lanes)
+
+                iteration += 1
+
+            if not silence:
+                continue
+
+            print("\tLines are silent.")
+
+            # Are the lanes alive?
+            self.daq.injection_enable(0xffff)
+            self.daq.injection_digital(0xffff)
+            self.daq.noforce_injection(0xffff)
+            self.daq.noforce_nomask(0xffff)
+            self.daq.pixels_mask()
+            self.daq.pixels_cfg(0b01, 0xffff, [0], [0], [0], 0b1)
+
+            # There still silence?
+            if not self.check_stability():
+                print("\tStability lost after injection enabling")
+                continue
+
+            # Send a TP, expect a packet per stable lane
+            self.daq.send_tp(1)
+            self.readout(40)
+
+            lanes_check = []
+            lanes_invalid = []
+            for packet in self.analysis.packets:
+                if isinstance(packet, PixelData):
+                    if packet.ser != packet.sec or packet.col != 0 or packet.corepr != 0:
+                        if packet.ser not in lanes_invalid:
+                            lanes_invalid.append(packet.ser)
+                            continue
+
+                    if packet.ser not in lanes_check and packet.ser not in lanes_invalid:
+                        lanes_check.append(packet.ser)
+
+            exclude = self.daq.sections_to_mask + lanes_check + to_mask
+            missing = [x for x in range(16) if x not in exclude]
+
+            ready = True
+            if len(missing) != 0:
+                ready = False
+                print(f"\tIteration {iteration}. Missing data from lanes: " + str(missing))
+
+            if len(lanes_invalid) != 0:
+                ready = False
+                print(f"\tIteration {iteration}. Found invalid data from lanes: " + str(lanes_invalid))
+
+            if ready:
+                print("\t... but not deaf!")
                 break
 
-            # Get a sample of the noisy data
-            analyzed = self.readout(30)
-            if analyzed == 0:
-                break
 
-            noisy_lanes = []
-            unsync_lanes = []
-            read = 0
-            for pkt in self.analysis.packets:
-                if isinstance(pkt, PixelData):
-                    read += 1
-                    if pkt.ser == pkt.sec and pkt.ser not in noisy_lanes:
-                        noisy_lanes.append(pkt.ser)
-                    elif pkt.ser not in unsync_lanes:
-                        unsync_lanes.append(pkt.ser)
-
-            if read == 0:
-                break
-
-            print(f"Iteration {iteration}. Found {read} Packets from:")
-            print("\tNoisy lanes: %s" % str(noisy_lanes))
-            print("\tUnsync lanes: %s" % str(unsync_lanes))
-
-            print("Synchronizing unsynchronized lanes, masking noisy ones...")
-            self.resync(unsync_lanes)
-            to_mask.extend(noisy_lanes)
-            iteration += 1
-
-        if read == 0:
-            self.daq.sections_to_mask.extend(to_mask)
-        else:
+        if not ready:
+            print()
             raise RuntimeError('Unable to stabilize the lanes!')
 
     def timestamp_sync(self):
+        self.daq.set_timestamp_delta(0)
+
         self.daq.pixels_mask()
+        self.daq.pixels_cfg(0b01, 0x000f, [0], [0], [0], 0xF)
         self.daq.noforce_injection()
         self.daq.noforce_nomask()
 
-        self.daq.set_timestamp_delta(0)
-        self.daq.pixels_cfg(0b01, 0x000f, [0], [0], [0], 0xF)
-    
         self.daq.reset_fifo()
         self.daq.clear_packets()
         self.daq.send_tp(1)
+        time.sleep(0.5)
         self.readout(30)
 
         tp = filter(lambda x:(type(x) == TestPulse), self.analysis.packets)
