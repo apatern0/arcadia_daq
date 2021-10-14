@@ -16,8 +16,19 @@ def customplot(axes, title):
     def decorator(f):
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
-            show = kwargs['show']
-            saveas = kwargs['saveas']
+            if 'show' in kwargs:
+                show = kwargs['show']
+            elif len(args) > 1:
+                show = args[1]
+            else:
+                show = False
+
+            if 'saveas' in kwargs:
+                saveas = kwargs['saveas']
+            elif len(args) > 2:
+                saveas = args[2]
+            else:
+                saveas = None
 
             if(show == False and saveas == None):
                 raise ValueError('Either show or save the plot!')
@@ -28,9 +39,9 @@ def customplot(axes, title):
 
             ax.set(xlabel=axes[0], ylabel=axes[1], title=title)
 
-            ax.grid()
             if isinstance(image, matplotlib.lines.Line2D) and ax.get_label() is not '':
                 ax.legend()
+                ax.grid()
             elif isinstance(image, matplotlib.image.AxesImage):
                 plt.colorbar(image, orientation='horizontal')
 
