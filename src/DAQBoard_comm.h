@@ -174,78 +174,86 @@ inline uint32_t calc_cmd_max_addr(){
 	return (addr_max+1);
 }
 
+class FPGAIf;
 
+class ChipIf {
 
-class DAQBoard_comm{
 private:
+	std::uint8_t chip_id;
 
-	const bool verbose = false;
-	const std::string device_str;
-	uhal::ConnectionManager ConnectionMgr;
-	uhal::HwInterface lHW;
+	FPGAIf* fpga;
 
-	struct chip_struct {
-		std::thread dataread_thread;
-		std::atomic_bool run_flag;
-		bool daq_timedout;
-		bool spi_unavaiable;
+	std::thread dataread_thread;
+	std::atomic_bool run_flag;
 
-		std::atomic_uint packet_count;
+	bool daq_timeout;
+	bool spi_unavailable;
 
-		std::vector<uint16_t> GCR_address_array;
-		std::vector<uint32_t> ctrl_address_array;
+	std::atomic_uint packet_count;
 
-		chip_struct() : run_flag({false}), daq_timedout(false), spi_unavaiable(false),
-			GCR_address_array(calc_gcr_max_addr()), ctrl_address_array(calc_cmd_max_addr()) {}
-	};
+	std::vector<uint16_t> GCR_address_array;
+	std::vector<uint32_t> ctrl_address_array;
 
-	std::map<std::string, chip_struct*> chip_stuctmap;
-
-	static int conf_handler(void* user, const char* section, const char* name,
-			const char* value);
-
-	void daq_loop(std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
+	void fifo_read_loop(uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
 
 public:
-
-	DAQBoard_comm(std::string connection_xml_path, std::string device_id, bool verbose=false);
-
+	ChipIf(uint8_t id, FPGAIf *fpga_ptr);
 	std::vector<uint64_t> packets;
 	size_t max_packets;
 
-	bool chipid_valid(std::string chip_id);
+	int send_controller_command(std::string cmd, uint32_t arg, uint32_t* resp);
+
+	// Deserializer Calibration
+	uint32_t calibrate_deserializers();
+
+	// Base I/O
+	int spi_transfer(ARCADIA_command command, uint16_t payload, uint32_t* rcv_data);
+	int send_pulse(uint32_t t_on, uint32_t t_off, uint32_t tp_number);
+
+	// Chip Configuration
+	int read_gcr(uint16_t addr, uint16_t* data, bool force_update = true);
+	int read_gcrpar(std::string gcrpar, uint16_t* value, bool force_update = true);
+	int check_gcr_consistency();
+
+	int write_gcr(uint16_t addr, uint16_t data);
+	int write_gcrpar(std::string gcrpar, uint16_t value);
+	int reinitialize_gcr(uint16_t addr);
+
+	int write_icr(std::string icr_reg, uint16_t data);
+
+	// FPGA FIFO Management
+	int fifo_reset();
+	int fifo_read(uint32_t stopafter);
+	int fifo_read_start(uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
+	int fifo_read_stop();
+	int fifo_read_wait();
+	uint32_t fifo_count();
+
+	// SW FIFO Management
+	void packets_reset();
+	uint32_t packets_count();
+	uint32_t packets_read(std::vector<uint64_t> *data);
+};
+
+class FPGAIf {
+private:
+	const bool verbose = false;
+	const std::string device_str;
+	uhal::ConnectionManager ConnectionMgr;
+
+	static int conf_handler(void* user, const char* section, const char* name, const char* value);
+
+public:
+	FPGAIf(std::string connection_xml_path, std::string device_id, bool verbose=false);
+
+	uhal::HwInterface lHW;
+
+	std::array<ChipIf*, 3> chips;
+
 	int read_conf(std::string fname);
 
-	int spi_transfer(ARCADIA_command command, uint16_t payload, std::string chip_id, uint32_t* rcv_data);
-	int read_gcr(std::string chip_id, uint16_t addr, uint16_t* data,
-			bool force_update = true);
-	int write_gcr(std::string chip_id, uint16_t addr, uint16_t data);
-	int reinitialize_gcr(std::string chip_id, uint16_t addr);
-	int write_icr(std::string chip_id, std::string icr_reg, uint16_t data);
-	int write_gcrpar(std::string chip_id, std::string gcrpar, uint16_t value);
-	int read_gcrpar(std::string chip_id, std::string gcrpar, uint16_t* value,
-			bool force_update = true);
-	int check_consistency(const std::string chip_id);
-
-	int send_controller_command(const std::string controller_id, const std::string cmd,
-			uint32_t arg, uint32_t* resp);
-
-	void clear_packets(std::string chip_id);
-	int read_fpga_register(std::string reg_handler, uint32_t* data);
-	int write_fpga_register(std::string reg_handler, uint32_t data);
-	int send_pulse(const std::string chip_id,
-			uint32_t t_on, uint32_t t_off, uint32_t tp_number);
+	int read_register(std::string reg_handler, uint32_t* data);
+	int write_register(std::string reg_handler, uint32_t data);
 	void dump_DAQBoard_reg();
-	int reset_fifo(std::string chip_id);
-
-	int daq_read(std::string chip_id, uint32_t stopafter);
-	int start_daq(std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
-	int stop_daq(std::string chip_id);
-	int wait_daq_finished();
-	uint32_t get_packet_count(std::string chip_id);
-	uint32_t get_fifo_occupancy(std::string chip_id);
-
-	uint32_t cal_serdes_idealy(std::string contrller_id);
-
 };
 #endif

@@ -58,12 +58,12 @@ def customplot(axes, title):
         return wrapper
     return decorator
 
-class DaqListen:
-    daq = None
+class ChipListen:
+    chip = None
     active = False
 
-    def __init__(self, daq):
-        self.daq = daq
+    def __init__(self, chip):
+        self.chip = chip
 
     def __enter__(self):
         self.start()
@@ -76,15 +76,16 @@ class DaqListen:
 
     def start(self):
         self.active = True
-        self.daq.listen_loop()
+        self.chip.listen_loop()
 
     def stop(self):
         self.active = False
-        self.daq.stop_daq(self.daq.chip_id)
+        self.chip.stop_chip(self.chip.chip_id)
 
 class Test:
     logger = None
-    daq = None
+    fpga = None
+    chip = None
     analysis = None
 
     reader = None
@@ -92,22 +93,23 @@ class Test:
 
     chip_timestamp_divider = 0
 
-    def __init__(self, auto_read=True):
-        self.daq = Daq()
+    def __init__(self):
+        self.fpga = Fpga()
+        self.chip = self.fpga.get_chip(0)
         self.analysis = DataAnalysis()
         self.logger = logging.getLogger(__name__)
-        
+
         # Load configuration
         self.load_cfg()
 
-        # Initialize Daq
-        self.daq.init_connection()
-        self.daq.logger = self.logger
+        # Initialize Chip
+        self.chip.init_connection()
+        self.chip.logger = self.logger
         if 'sections_to_mask' in self.cfg:
             stm = self.cfg['sections_to_mask'].split(",")
-            print("Masking sections: ", end=""); print(stm)
+            print("Masking sections: %s" % str(stm))
             stm = [int(x) for x in stm]
-            self.daq.sections_to_mask = stm
+            self.chip.sections_to_mask = stm
 
         # Initialize DataAnalysis
         self.analysis = DataAnalysis()
@@ -121,7 +123,7 @@ class Test:
         self.logger.addHandler(ch)
 
         # Add Listener
-        self.reader = DaqListen(self.daq)
+        self.reader = ChipListen(self.chip)
 
     def __del__(self):
         if self.reader is not None:
@@ -134,10 +136,10 @@ class Test:
         config = configparser.ConfigParser()
         config.read('./chip.ini')
 
-        if self.daq.chip_id not in config.sections():
+        if self.chip.chip_id not in config.sections():
             return False
 
-        self.cfg = config[self.daq.chip_id]
+        self.cfg = config[self.chip.chip_id]
 
     def set_timestamp_resolution(self, res_s):
         clock_hz = 80E6
@@ -156,35 +158,35 @@ class Test:
 
         self.analysis.ts_hz = 1/res_s
 
-        self.daq.write_gcrpar('TIMING_CLK_DIVIDER', chip_clock_divider)
-        self.daq.set_timestamp_period(fpga_clock_divider)
+        self.chip.write_gcrpar('TIMING_CLK_DIVIDER', chip_clock_divider)
+        self.chip.set_timestamp_period(fpga_clock_divider)
 
         self.chip_timestamp_divider = chip_clock_divider
 
     # Global
     def chip_init(self):
-        self.daq.enable_readout(0)
-        self.daq.hard_reset()
-        self.daq.reset_subsystem('chip', 1)
-        self.daq.reset_subsystem('chip', 2)
-        self.daq.write_gcr(0, (0xFF00) | (self.chip_timestamp_divider << 8))
-        self.daq.reset_subsystem('per', 1)
-        self.daq.reset_subsystem('per', 2)
-        self.daq.injection_digital()
-        self.daq.injection_enable()
-        self.daq.clock_enable()
-        self.daq.read_enable()
-        self.daq.force_injection()
-        self.daq.force_nomask()
-        self.daq.reset_subsystem('per', 1)
-        self.daq.reset_subsystem('per', 2)
-        self.daq.pixels_mask()
-        self.daq.write_gcrpar('LVDS_STRENGTH', 0b111)
-        self.daq.sync_mode()
+        self.chip.enable_readout(0)
+        self.chip.hard_reset()
+        self.chip.reset_subsystem('chip', 1)
+        self.chip.reset_subsystem('chip', 2)
+        self.chip.write_gcr(0, (0xFF00) | (self.chip_timestamp_divider << 8))
+        self.chip.reset_subsystem('per', 1)
+        self.chip.reset_subsystem('per', 2)
+        self.chip.injection_digital()
+        self.chip.injection_enable()
+        self.chip.clock_enable()
+        self.chip.read_enable()
+        self.chip.force_injection()
+        self.chip.force_nomask()
+        self.chip.reset_subsystem('per', 1)
+        self.chip.reset_subsystem('per', 2)
+        self.chip.pixels_mask()
+        self.chip.write_gcrpar('LVDS_STRENGTH', 0b111)
+        self.chip.sync_mode()
         time.sleep(1)
-        synced = self.daq.sync()
-        self.daq.normal_mode()
-        self.daq.enable_readout(synced)
+        synced = self.chip.sync()
+        self.chip.normal_mode()
+        self.chip.enable_readout(synced)
 
         print("Synchronized lanes:", end=''); print(synced)
 
@@ -192,9 +194,9 @@ class Test:
         
     def check_stability(self):
         for i in range(8):
-            self.daq.reset_fifo()
-            self.daq.clear_packets()
-            packets_in_fifo = self.daq.get_fifo_occupancy()
+            self.chip.reset_fifo()
+            self.chip.clear_packets()
+            packets_in_fifo = self.chip.get_fifo_occupancy()
             if packets_in_fifo != 0:
                 time.sleep(0.01)
                 continue
@@ -213,9 +215,9 @@ class Test:
             print(f"Synchronization iteration {iteration}...")
             silence = False
             while iteration < 5:
-                self.daq.enable_readout(onecold(to_mask, 0xffff))
-                self.daq.reset_fifo()
-                self.daq.clear_packets()
+                self.chip.enable_readout(onecold(to_mask, 0xffff))
+                self.chip.reset_fifo()
+                self.chip.clear_packets()
 
                 if self.check_stability():
                     silence = True
@@ -256,12 +258,12 @@ class Test:
             print("\tLines are silent.")
 
             # Are the lanes alive?
-            self.daq.injection_enable(0xffff)
-            self.daq.injection_digital(0xffff)
-            self.daq.noforce_injection(0xffff)
-            self.daq.noforce_nomask(0xffff)
-            self.daq.pixels_mask()
-            self.daq.pixels_cfg(0b01, 0xffff, [0], [0], [0], 0b1)
+            self.chip.injection_enable(0xffff)
+            self.chip.injection_digital(0xffff)
+            self.chip.noforce_injection(0xffff)
+            self.chip.noforce_nomask(0xffff)
+            self.chip.pixels_mask()
+            self.chip.pixels_cfg(0b01, 0xffff, [0], [0], [0], 0b1)
 
             # There still silence?
             if not self.check_stability():
@@ -269,7 +271,7 @@ class Test:
                 continue
 
             # Send a TP, expect a packet per stable lane
-            self.daq.send_tp(1)
+            self.chip.send_tp(1)
             self.readout(40)
 
             lanes_check = []
@@ -284,7 +286,7 @@ class Test:
                     if packet.ser not in lanes_check and packet.ser not in lanes_invalid:
                         lanes_check.append(packet.ser)
 
-            exclude = self.daq.sections_to_mask + lanes_check + to_mask
+            exclude = self.chip.sections_to_mask + lanes_check + to_mask
             missing = [x for x in range(16) if x not in exclude]
 
             ready = True
@@ -306,16 +308,16 @@ class Test:
             raise RuntimeError('Unable to stabilize the lanes!')
 
     def timestamp_sync(self):
-        self.daq.set_timestamp_delta(0)
+        self.chip.set_timestamp_delta(0)
 
-        self.daq.pixels_mask()
-        self.daq.pixels_cfg(0b01, 0x000f, [0], [0], [0], 0xF)
-        self.daq.noforce_injection()
-        self.daq.noforce_nomask()
+        self.chip.pixels_mask()
+        self.chip.pixels_cfg(0b01, 0x000f, [0], [0], [0], 0xF)
+        self.chip.noforce_injection()
+        self.chip.noforce_nomask()
 
-        self.daq.reset_fifo()
-        self.daq.clear_packets()
-        self.daq.send_tp(1)
+        self.chip.reset_fifo()
+        self.chip.clear_packets()
+        self.chip.send_tp(1)
         time.sleep(0.5)
         self.readout(30)
 
@@ -355,7 +357,7 @@ class Test:
 
         self.logger.info("New Data timestamp: 0x%x (FPGA) 0x%x (CHIP)" % (ts_fpga-ts_delta, ts_chip))
 
-        self.daq.set_timestamp_delta(ts_delta)
+        self.chip.set_timestamp_delta(ts_delta)
 
     def initialize(self, auto_read=True):
         for i in range(4):
@@ -363,8 +365,8 @@ class Test:
 
             # Initialize chip
             lanes = self.chip_init()
-            to_mask = [item for item in list(range(16)) if item not in lanes and item not in self.daq.sections_to_mask]
-            self.daq.sections_to_mask.extend(to_mask)
+            to_mask = [item for item in list(range(16)) if item not in lanes and item not in self.chip.sections_to_mask]
+            self.chip.sections_to_mask.extend(to_mask)
 
             # Check and stabilize the lanes
             self.stabilize_lanes()
@@ -377,7 +379,7 @@ class Test:
 
             if ok:
                 if auto_read:
-                    self.daq.reset_fifo()
+                    self.chip.reset_fifo()
                     self.reader.start()
     
                 return
@@ -385,10 +387,10 @@ class Test:
         raise RuntimeError('Unable to receive data from the chip!')
 
     def resync(self, lanes=0xffff):
-        self.daq.sync_mode()
+        self.chip.sync_mode()
         time.sleep(0.1)
-        synced = self.daq.sync(lanes)
-        self.daq.normal_mode()
+        synced = self.chip.sync(lanes)
+        self.chip.normal_mode()
         time.sleep(0.1)
 
         return synced
@@ -398,20 +400,20 @@ class Test:
             self.analysis.cleanup()
 
         if not self.reader.active:
-            in_fifo = self.daq.get_fifo_occupancy()
+            in_fifo = self.chip.get_fifo_occupancy()
 
             if(in_fifo == 0):
                 return 0
 
             packets_to_read = min(in_fifo, max_packets) if max_packets is not None else in_fifo
-            packets_read = self.daq.readout_burst(packets_to_read)
+            packets_read = self.chip.readout_burst(packets_to_read)
     
             if(packets_read < packets_to_read and fail_on_error):
                 raise ValueError(f'Readout {packets_read} out of {packets_to_read}')
         else:
             max_packets = None
 
-        readout = self.daq.readout()
+        readout = self.chip.readout()
         analyzed = self.analysis.analyze(readout)
 
         return analyzed

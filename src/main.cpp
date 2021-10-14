@@ -5,9 +5,8 @@
 #include "cxxopts.hpp"
 #include "DAQBoard_comm.h"
 
-
 // for sign handler
-DAQBoard_comm *DAQBoard_mng_ptr;
+FPGAIf* fpga_ptr;
 
 void signal_handler(int signal){
 
@@ -15,8 +14,8 @@ void signal_handler(int signal){
 		return;
 
 	std::cout << "interrupting DAQ..." << std::endl;
-	for (std::string id: {"id0", "id1", "id2"})
-		DAQBoard_mng_ptr->stop_daq(id);
+	for (uint8_t id: {0, 1, 2})
+		fpga_ptr->chips[id]->fifo_read_stop();
 }
 
 
@@ -32,7 +31,7 @@ int main(int argc, char** argv){
 			cxxopts::value<std::string>()->default_value("kc705"))
 		("config",    "load registers .conf file", cxxopts::value<std::string>())
 		("c,chip",    "Chip id, one of [id0, id1, id2]",
-			cxxopts::value<std::string>()->default_value("id0"))
+			cxxopts::value<uint8_t>()->default_value("id0"))
 		("gcr",       "Select GCR [num]", cxxopts::value<uint16_t>())
 		("gcrpar",    "Select GCR paramer [paramater]", cxxopts::value<std::string>())
 		("ICR0",      "Select ICR0")
@@ -73,32 +72,30 @@ int main(int argc, char** argv){
 	else
 		uhal::setLogLevelTo(uhal::Error());
 
-	// init DAQBoard_comm class instace
+	// init FPGAIf class instace
 	bool daq_verbose_flag = (verbose_cnt >= 1);
-	DAQBoard_comm DAQBoard_mng(
+	FPGAIf fpga (
 			cxxopts_res["conn"].as<std::string>(),
 			cxxopts_res["device"].as<std::string>(),
 			daq_verbose_flag
 	);
 
 	//install signal handler
-	DAQBoard_mng_ptr = &DAQBoard_mng;
+	fpga_ptr = &fpga;
 	std::signal(SIGINT, signal_handler);
-
 
 	///////////////// parse /////////////////////
 
 	if (cxxopts_res.count("config")){
 		std::string fname =  cxxopts_res["config"].as<std::string>();
-		DAQBoard_mng.read_conf(fname);
+		fpga.read_conf(fname);
 	}
 
-
-	std::string chipid = cxxopts_res["chip"].as<std::string>();
+	std::uint8_t chipid = cxxopts_res["chip"].as<uint8_t>();
 
 	if (cxxopts_res.count("calibrate")){
 		std::cout << "start calibration.." << std::endl;
-		DAQBoard_mng.cal_serdes_idealy("controller_" + chipid);
+		fpga.chips[chipid]->calibrate_deserializers();
 	}
 
 
@@ -107,25 +104,25 @@ int main(int argc, char** argv){
 
 		if (cxxopts_res.count("gcr")){
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
-			DAQBoard_mng.write_gcr(chipid, gcr, value);
+			fpga.chips[chipid]->write_gcr(gcr, value);
 			std::cout << "write grc: " << std::dec << gcr << " val: 0x" << std::hex << value << std::endl;
 		}
 		else if (cxxopts_res.count("reg")){
 			std::string reg = cxxopts_res["reg"].as<std::string>();
-			DAQBoard_mng.write_fpga_register(reg, value);
+			fpga.write_register(reg, value);
 			std::cout << "write reg: " << reg << " val: 0x" << std::hex << value << std::endl;
 		}
 		else if (cxxopts_res.count("ICR0") || cxxopts_res.count("ICR1")){
 			std::string icrstr = "000";
 			if (cxxopts_res.count("ICR0")) icrstr = "ICR0";
 			else if (cxxopts_res.count("ICR1")) icrstr = "ICR1";
-			DAQBoard_mng.write_icr(chipid, icrstr, value);
+			fpga.chips[chipid]->write_icr(icrstr, value);
 		}
 		else if (cxxopts_res.count("gcrpar")){
 			std::string gcrpar = cxxopts_res["gcrpar"].as<std::string>();
 			std::cout << "write gcrpar: " << gcrpar << " val: 0x" << std::hex << value
 				<< std::endl;
-			DAQBoard_mng.write_gcrpar(chipid, gcrpar, value);
+			fpga.chips[chipid]->write_gcrpar(gcrpar, value);
 		}
 		else if (!cxxopts_res.count("controller")) {
 			std::cout << "no register selected" << std::endl;
@@ -134,25 +131,24 @@ int main(int argc, char** argv){
 
 	}
 
-
 	if (cxxopts_res.count("read")){
 
 		if (cxxopts_res.count("gcr")){
 			uint16_t val = 0;
 			uint16_t gcr = cxxopts_res["gcr"].as<uint16_t>();
-			DAQBoard_mng.read_gcr(chipid, gcr, &val, true);
+			fpga.chips[chipid]->read_gcr(gcr, &val, true);
 			std::cout << "read grc: " << gcr << " val: 0x" << std::hex << val << std::endl;
 		}
 		else if(cxxopts_res.count("reg")){
 			uint32_t val = 0;
 			std::string reg = cxxopts_res["reg"].as<std::string>();
-			DAQBoard_mng.read_fpga_register(reg, &val);
+			fpga.read_register(reg, &val);
 			std::cout << "read reg: " << reg << " val: 0x" << std::hex << val << std::endl;
 		}
 		else if (cxxopts_res.count("gcrpar")){
 			std::string gcrpar = cxxopts_res["gcrpar"].as<std::string>();
 			uint16_t data;
-			int ret = DAQBoard_mng.read_gcrpar(chipid, gcrpar, &data, true);
+			int ret = fpga.chips[chipid]->read_gcrpar(gcrpar, &data, true);
 			if (ret != 0){
 				std::cout << "read error: " << ret  << std::endl;
 				return -1;
@@ -168,48 +164,43 @@ int main(int argc, char** argv){
 	}
 
 	if(cxxopts_res.count("pulse"))
-		DAQBoard_mng.send_pulse(cxxopts_res["pulse"].as<std::string>(), 10, 10, 1);
+		fpga.chips[cxxopts_res["pulse"].as<uint8_t>()]->send_pulse(10, 10, 1);
 
 	if (cxxopts_res.count("dump-regs"))
-		DAQBoard_mng.dump_DAQBoard_reg();
-
+		fpga.dump_DAQBoard_reg();
 
 	if (cxxopts_res.count("controller")){
 
 		auto command = cxxopts_res["controller"].as<std::string>();
-		std::string controllerid = "controller_" + chipid;
 
 		uint32_t extra_data = 0;
 		if (cxxopts_res.count("write"))
 			extra_data = cxxopts_res["write"].as<uint32_t>();
 
 		uint32_t resp;
-		int ret = DAQBoard_mng.send_controller_command(controllerid,
-				command, extra_data, &resp);
+		int ret = fpga.chips[chipid]->send_controller_command(command, extra_data, &resp);
 
-		if (ret == 0){
+		if (ret == 0) {
 			std::cout << "response: " << std::hex << resp << std::endl;
 		}
 
-		if (ret == -1){
+		if (ret == -1) {
 			std::cerr << "Available commands: " << std::endl;
 			for (auto cmd = ctrl_cmd_map.begin(); cmd != ctrl_cmd_map.end(); cmd++)
 				std::cout << cmd->first << std::endl;
 		}
-
 	}
 
 
 	if (cxxopts_res.count("reset-fifo")){
 		std::cout << "resetting readout FIFOs" << std::endl;
-		for (std::string id: {"id0", "id1", "id2"})
-			DAQBoard_mng.reset_fifo(id);
+		for (uint8_t id: {0, 1, 2})
+			fpga.chips[id]->fifo_reset();
 	}
 
 
 	if (cxxopts_res.count("daq")){
-
-		auto chipid_list = cxxopts_res["daq"].as<std::vector<std::string>>();
+		auto chipid_list = cxxopts_res["daq"].as<std::vector<uint8_t>>();
 		auto daq_mode = cxxopts_res["daq-mode"].as<uint16_t>();
 		auto maxpkts = cxxopts_res["maxpkts"].as<uint32_t>();
 		auto maxtime = cxxopts_res["maxtime"].as<uint32_t>();
@@ -217,20 +208,19 @@ int main(int argc, char** argv){
 
 		std::cout << "starting DAQ, Ctrl-C to stop..." << std::endl;
 
-		for(auto chip_id: chipid_list)
-			DAQBoard_mng.start_daq(chip_id, maxpkts, maxtime, maxidle);
+		for(auto chipid: chipid_list)
+			fpga.chips[chipid]->fifo_read_start(maxpkts, maxtime, maxidle);
 
 		if (daq_mode != 0){
 			usleep(500000);
-			DAQBoard_mng.write_fpga_register("regfile.mode", daq_mode);
+			fpga.write_register("regfile.mode", daq_mode);
 		}
 
-		int ret = DAQBoard_mng.wait_daq_finished();
+		for(auto chipid: chipid_list)
+			fpga.chips[chipid]->fifo_read_wait();
 
 		if (daq_mode != 0)
-			DAQBoard_mng.write_fpga_register("regfile.mode", 0x0);
-
-		return ret;
+			fpga.write_register("regfile.mode", 0x0);
 	}
 
 	return 0;

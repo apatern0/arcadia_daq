@@ -4,7 +4,6 @@
 
 namespace py = pybind11;
 
-
 void set_ipbus_loglevel(int level){
 
 	switch(level){
@@ -18,88 +17,90 @@ void set_ipbus_loglevel(int level){
 		default:
 			uhal::setLogLevelTo(uhal::Warning());
 			break;
-
 	}
-
 }
 
-//TODO: find something cleaner for functions taking pointer arguments
-PYBIND11_MODULE(DAQ_pybind, m) {
-
-	py::class_<DAQBoard_comm>(m, "DAQBoard_comm")
+PYBIND11_MODULE(arcadia_daq, m) {
+	py::class_<FPGAIf>(m, "FPGAIf")
 		.def(py::init<const std::string &, const std::string &, bool>())
+		.def_property_readonly("chips", [](FPGAIf &fpga) {
+			return py::make_tuple(fpga.chips[0], fpga.chips[1], fpga.chips[2]);
+		})
 
-		.def("read_conf", &DAQBoard_comm::read_conf)
+		.def("get_chip", [](FPGAIf &fpga, uint8_t id) {
+			if(id > 2)
+				throw std::runtime_error("Invalid chip id: " + std::to_string(id));
 
-		.def("spi_transfer", [](DAQBoard_comm &DAQ, ARCADIA_command command, uint16_t payload,
-					std::string chip_id) {
+			return fpga.chips[id];
+		})
+
+		.def("read_conf", &FPGAIf::read_conf)
+
+		.def("read_register", [](FPGAIf &fpga, std::string reg_handler) {
+				uint32_t value;
+				int ret = fpga.read_register(reg_handler, &value);
+				return py::make_tuple(ret, value);
+				})
+		.def("write_register", &FPGAIf::write_register)
+		.def("dump_DAQBoard_reg", &FPGAIf::dump_DAQBoard_reg);
+
+
+	py::class_<ChipIf>(m, "ChipIf")
+		.def_readwrite("max_packets", &ChipIf::max_packets)
+		.def("spi_transfer", [](ChipIf &chip, ARCADIA_command command, uint16_t payload) {
 				uint32_t rcv_data;
-				int ret = DAQ.spi_transfer(command, payload, chip_id, &rcv_data);
+				int ret = chip.spi_transfer(command, payload, &rcv_data);
 				return py::make_tuple(ret, rcv_data);
 				})
 
-		.def("read_gcr", [](DAQBoard_comm &DAQ, std::string chip_id, uint16_t addr,
-					bool force_update) {
+		.def("read_gcr", [](ChipIf &chip, uint16_t addr, bool force_update) {
 				uint16_t value;
-				int ret = DAQ.read_gcr(chip_id, addr, &value, force_update);
+				int ret = chip.read_gcr(addr, &value, force_update);
 				return py::make_tuple(ret, value);
 				})
 
-		.def("write_gcr", &DAQBoard_comm::write_gcr)
-		.def("reinitialize_gcr", &DAQBoard_comm::reinitialize_gcr)
-		.def("write_icr", &DAQBoard_comm::write_icr)
-		.def("write_gcrpar", &DAQBoard_comm::write_gcrpar)
+		.def("write_gcr", &ChipIf::write_gcr)
+		.def("reinitialize_gcr", &ChipIf::reinitialize_gcr)
+		.def("write_icr", &ChipIf::write_icr)
+		.def("write_gcrpar", &ChipIf::write_gcrpar)
 
-		.def("read_gcrpar", [](DAQBoard_comm &DAQ, std::string chip_id, std::string gcrpar,
-					bool force_update) {
+		.def("read_gcrpar", [](ChipIf &chip, std::string gcrpar, bool force_update) {
 				uint16_t value;
-				int ret = DAQ.read_gcrpar(chip_id, gcrpar, &value, force_update);
+				int ret = chip.read_gcrpar(gcrpar, &value, force_update);
 				return py::make_tuple(ret, value);
 				})
 
-		.def("check_consistency", &DAQBoard_comm::check_consistency)
+		.def("check_gcr_consistency", &ChipIf::check_gcr_consistency)
 
-		.def("send_controller_command", [](DAQBoard_comm &DAQ, std::string controller_id,
-					const std::string cmd, uint32_t arg) {
+		.def("send_controller_command", [](ChipIf &chip, const std::string cmd, uint32_t arg) {
 				uint32_t resp;
-				int ret = DAQ.send_controller_command(controller_id, cmd, arg, &resp);
+				int ret = chip.send_controller_command(cmd, arg, &resp);
 				return py::make_tuple(ret, resp);
 				})
 
-		.def("read_fpga_register", &DAQBoard_comm::read_fpga_register)
+		.def("send_pulse", &ChipIf::send_pulse)
+		.def("fifo_count", &ChipIf::fifo_count)
+		.def("fifo_reset", &ChipIf::fifo_reset)
 
-		.def("read_fpga_register", [](DAQBoard_comm &DAQ, std::string reg_handler) {
-				uint32_t value;
-				int ret = DAQ.read_fpga_register(reg_handler, &value);
-				return py::make_tuple(ret, value);
-				})
-
-		.def("write_fpga_register", &DAQBoard_comm::write_fpga_register)
-		.def("send_pulse", &DAQBoard_comm::send_pulse)
-		.def("dump_DAQBoard_reg", &DAQBoard_comm::dump_DAQBoard_reg)
-
-		.def("get_fifo_occupancy", &DAQBoard_comm::get_fifo_occupancy)
-		.def("reset_fifo", &DAQBoard_comm::reset_fifo)
-
-		.def("daq_read", &DAQBoard_comm::daq_read)
-		.def("start_daq", [](DAQBoard_comm &DAQ, std::string chip_id, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout) {
+		.def("fifo_read", &ChipIf::fifo_read)
+		.def("fifo_read_start", [](ChipIf &chip, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout) {
 			py::gil_scoped_release release;
-			DAQ.start_daq(chip_id, stopafter, timeout, idle_timeout);
+			chip.fifo_read_start(stopafter, timeout, idle_timeout);
 			})
 
-		.def("stop_daq", &DAQBoard_comm::stop_daq)
-		.def("wait_daq_finished", &DAQBoard_comm::wait_daq_finished)
-		.def("get_packet_count", &DAQBoard_comm::get_packet_count)
+		.def("fifo_read_stop", &ChipIf::fifo_read_stop)
+		.def("fifo_read_wait", &ChipIf::fifo_read_wait)
 
-		.def("readout", [](DAQBoard_comm &DAQ, std::string chip_id) {
-				//std::cout << "Fetching " << DAQ.packets.size() << " packets into array!" << std::endl;
-				auto result = py::array(DAQ.packets.size(), DAQ.packets.data());
-				DAQ.clear_packets(chip_id);
+		.def("readout", [](ChipIf &chip) {
+				//std::cout << "Fetching " << chip.packets.size() << " packets into array!" << std::endl;
+				auto result = py::make_tuple(chip.packets.size(), chip.packets.data());
+				chip.packets_reset();
 				return result;
 				})
-		.def("clear_packets", &DAQBoard_comm::clear_packets)
+		.def("packets_reset", &ChipIf::packets_reset)
+		.def("packets_count", &ChipIf::packets_count)
 
-		.def("cal_serdes_idealy", &DAQBoard_comm::cal_serdes_idealy);
+		.def("calibrate_deserializers", &ChipIf::calibrate_deserializers);
 
 	m.def("set_ipbus_loglevel", &set_ipbus_loglevel);
 

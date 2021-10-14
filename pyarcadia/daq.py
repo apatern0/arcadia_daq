@@ -16,7 +16,7 @@ import os, sys, argparse, time, logging
 import numpy as np
 import matplotlib.pyplot as plt
 
-from DAQ_pybind import DAQBoard_comm, set_ipbus_loglevel
+from arcadia_daq import FPGAIf, ChipIf, set_ipbus_loglevel
 set_ipbus_loglevel(0)
 
 def onehot(bits, base=0x0000):
@@ -54,14 +54,13 @@ def onecold(bits, base=0xffff):
     """
     return ~onehot(bits) & base
 
-class Daq(DAQBoard_comm):
+class Fpga(FPGAIf):
     """This class is used to communicate with the FPGA
 
     :ivar chip_id: Chip identification. Default: id0
     :ivar sections_to_mask: Sections to filter out during FPGA readout
     """
 
-    chip_id = 'id0'
     sections_to_mask = []
 
     def init_connection(self, xml_file=None):
@@ -76,10 +75,23 @@ class Daq(DAQBoard_comm):
         try:
             super().__init__(xml_file, 'kc705', 0)
         except:
-            raise RuntimeError('Failed to instantiate DAQBoard_comm')
+            raise RuntimeError('Failed to instantiate FPGAIf')
             sys.exit(255)
 
-    # Overriding some methods to improve usability
+    def __init__(self, xml_file=None):
+        self.init_connection(xml_file)
+
+    def get_chip(self, chip_id):
+        return Chip(self.chips[chip_id])
+
+
+class Chip(object):
+
+    def __init__(self, chipif):
+        self.__chipif = chipif
+
+    def __getattr__(self, attr):
+        return getattr(self.__chipif, attr)
 
     def write_gcrpar(self, gcrpar, value):
         """Writes a GCR field
@@ -91,19 +103,30 @@ class Daq(DAQBoard_comm):
         :type value: int
         """
         self.logger.debug("Writing GCR_PAR[%s] = 0x%x" % (gcrpar, value))
-        super().write_gcrpar(self.chip_id, gcrpar, value)
+        self.__chipif.write_gcrpar(gcrpar, value)
+
+    def read_gcr(self, gcr, force_update=False):
+        """Reads a GCR
+
+        :param gcr: GCR name as in the ARCADIA Configuration file
+        :type gcr: string
+
+        :param force_update: Updates from Chip
+        :type force_update: bool
+        """
+        return self.__chipif.read_gcr(gcr, force_update)
 
     def write_gcr(self, gcr, value):
         """Writes a GCR
 
-        :param gcrpar: GCR name as in the ARCADIA Configuration file
-        :type gcrpar: string
+        :param gcr: GCR name as in the ARCADIA Configuration file
+        :type gcr: string
 
         :param value: Value to be written in the GCR
         :type value: int
         """
         self.logger.debug("Writing GCR[%2d] = 0x%x" % (gcr, value))
-        super().write_gcr(self.chip_id, gcr, value)
+        self.__chipif.write_gcr(gcr, value)
 
     def write_icr(self, icr, value):
         """Writes an ICR
@@ -115,7 +138,7 @@ class Daq(DAQBoard_comm):
         :type value: int
         """
         self.logger.debug("Writing ICR%1d = %x" % (icr, value))
-        super().write_icr(self.chip_id, 'ICR%1d' % icr, value)
+        self.__chipif.write_icr('ICR%1d' % icr, value)
 
     def send_controller_command(self, cmd, value=0):
         """Send a command to the FPGA Controller
@@ -126,29 +149,29 @@ class Daq(DAQBoard_comm):
         :param value: Command payload
         :type value: int, optional
         """
-        resp = super().send_controller_command('controller_'+self.chip_id, cmd, value)
+        resp = self.__chipif.send_controller_command(cmd, value)
         return resp
 
-    def clear_packets(self):
+    def packets_reset(self):
         """Clear any packet that might have been readout
         """
-        return super().clear_packets(self.chip_id)
+        return self.__chipif.packets_reset()
 
-    def get_fifo_occupancy(self):
+    def packets_count(self):
         """Get the current FPGA FIFO occupancy
 
         :return: Data packets in the FPGA FIFO
         :rtype: int
         """
-        return super().get_fifo_occupancy(self.chip_id)
+        return self.__chipif.packets_count()
 
-    def readout_burst(self, packets):
+    def fifo_read(self, packets):
         """Get `packets` readout from DAQ FIFO
 
         :return: Number of packets readout
         :rtype: int
         """
-        return super().daq_read(self.chip_id, packets)
+        return self.__chipif.fifo_read(self.chip_id, packets)
 
     def readout(self):
         """Fetch readout packets
@@ -156,7 +179,7 @@ class Daq(DAQBoard_comm):
         :return: Data packets readout so far
         :rtype: py::array_t
         """
-        return super().readout(self.chip_id)
+        return self.__chipif.readout()
 
     def enable_readout(self, sections):
         """Enable t
@@ -178,9 +201,9 @@ class Daq(DAQBoard_comm):
         self.send_controller_command('loadTSDeltaLSB', ((delta>>0)  & 0xfffff))
         self.send_controller_command('loadTSDeltaMSB', ((delta>>20) & 0xfffff))
 
-    def calibrate_serializers(self):
+    def calibrate_deserializers(self):
         self.sync_mode()
-        response = self.cal_serdes_idealy('controller_'+self.chip_id)
+        response = self.__chipif.calibrate_deserializers()
         self.normal_mode()
 
         lanes = []
@@ -193,9 +216,6 @@ class Daq(DAQBoard_comm):
     def set_timestamp_period(self, period):
         period = period
         self.send_controller_command('writeTimeStampPeriod', (period & 0xffff))
-
-    def __init__(self, xml_file=None):
-        self.init_connection(xml_file)
 
     # Chip commands
     def hard_reset(self):
@@ -325,7 +345,7 @@ class Daq(DAQBoard_comm):
     def send_tp(self, pulses=1, t_on=1000, t_off=1000):
         t_on = t_on-2 if (t_on > 2) else t_on
         t_off = t_off-1 if (t_off > 1) else t_off
-        super().send_pulse(self.chip_id, int(t_on), int(t_off), pulses)
+        self.__chipif.send_pulse(self.chip_id, int(t_on), int(t_off), pulses)
 
     # FPGA commands
     def sync(self, lanes=0xffff):
@@ -340,7 +360,7 @@ class Daq(DAQBoard_comm):
         return lanes
 
     def reset_fifo(self):
-        super().reset_fifo(self.chip_id)
+        self.__chipif.reset_fifo(self.chip_id)
 
         time.sleep(0.1)
 
