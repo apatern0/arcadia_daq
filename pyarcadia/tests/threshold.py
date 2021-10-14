@@ -66,31 +66,33 @@ class ThresholdScan(ScanTest):
         self.daq.read_enable(self.sections)
         self.daq.injection_digital(self.sections)
         self.daq.send_tp(2)
-        time.sleep(0.01)
+        time.sleep(0.1)
 
         self.daq.custom_word(0xBEEFBEEF, iteration)
         self.daq.injection_analog(self.sections)
         self.daq.send_tp(self.injections)
-        time.sleep(0.01)
+        time.sleep(0.2)
 
         self.daq.custom_word(0xDEADBEEF, iteration)
         for i in range(0,self.injections):
             self.daq.injection_analog(self.sections)
             self.daq.injection_digital(self.sections)
 
-        time.sleep(0.01)
+        time.sleep(0.2)
 
         self.daq.read_disable(self.sections)
         self.daq.custom_word(0xCAFECAFE, iteration)
 
     def post_main(self):
         super().post_main()
-        print("Now analysing results...")
+        print("Fetching results...")
         self.readout(reset=True)
+        print("Now analysing results...")
 
         iterator = iter(self.analysis.packets)
-        packet = next(p for p in iterator if type(p) == CustomWord and p.word == 0xDEAFABBA);
+        packet = next(p for p in iterator if type(p) == CustomWord and p.word == 0xDEAFABBA)
         counter = 0
+        invalid = [[] for _ in range(64)]
         with tqdm(total=len(self.analysis.packets), desc='Data analysis') as bar:
             while True:
                 th = packet.payload
@@ -121,7 +123,8 @@ class ThresholdScan(ScanTest):
                     num = len(packets)
 
                     if(num < tps):
-                        raise RuntimeError("TH:%u - Section %u didn't receive the digitally injected packets." % (th, section))
+                        #raise RuntimeError("TH:%u - Section %u didn't receive the digitally injected packets." % (th, section))
+                        invalid[th].append(section)
 
                 #print("\t\tElapsed for digital: %3d (%d packets)" % ((time.time() - ts)*1000, c))
 
@@ -192,18 +195,22 @@ class ThresholdScan(ScanTest):
                 if(type(packet) != CustomWord or packet.word != 0xDEAFABBA):
                     raise RuntimeError('Unexpected packet here: %s' % packet.to_string())
 
+        for i,l in enumerate(invalid):
+            if len(l) > 0:
+                print("Lane %d missing digital injections for threshold trials: %s" % (i, str(l)))
+
     @customplot(('VCASN (#)', 'Efficiency(#)'), 'Threshold scan') 
     def singleplot(self, pix, show=True, saveas=None, ax=None):
         inj = self.pixels[pix].injected
-        inj = [x/self.injections for x in inj]
+        #inj = [x/self.injections for x in inj]
         ax.plot(self.range, inj, '--bo', label='Test Pulses')
 
         noise = self.pixels[pix].noise
         total = [x + y for x, y in zip(inj, noise)]
-        total = [x/self.injections for x in total]
-        ax.plot(self.range, total, '--ro', label='Total')
+        #total = [x/self.injections for x in total]
+        return ax.plot(self.range, total, '--ro', label='Total')
 
     def plot(self, show=True, saveas=None):
         for pixel in self.pixels:
-            pix_saveas = None if (saveas == None) else f"{saveas}_{pixel[0]}_{pixel[1]}"
+            pix_saveas = None if saveas is None else f"{saveas}_{pixel[0]}_{pixel[1]}"
             self.singleplot(pixel, show=show, saveas=pix_saveas)

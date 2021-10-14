@@ -82,13 +82,14 @@ class FullBaselineScan(ScanTest):
     sections = []
     axes = ["Section (#)", "VCASN (#)"]
     result = None
+    range = None
 
     def pre_main(self):
         super().pre_main()
         self.sections = [x for x in range(16) if x not in self.daq.sections_to_mask]
 
-        self.range  = range(1,64)
-        self.result = np.zeros((16,64), int)
+        self.range  = range(1, 64)
+        self.result = np.zeros((16, 64), int)
 
     def pre_loop(self):
         for section in self.sections:
@@ -122,6 +123,7 @@ class FullBaselineScan(ScanTest):
 
         iterator = iter(self.analysis.packets)
         packet = next(p for p in iterator if type(p) == CustomWord and p.word == 0xDEAFABBA);
+        invalid = [[] for _ in range(16)]
 
         while True:
             th = packet.payload
@@ -146,8 +148,8 @@ class FullBaselineScan(ScanTest):
                 num = len(packets)
 
                 if(num < tps):
-                    print("TH:%u - Section %u didn't receive the digitally injected packets." % (th, section))
                     #raise RuntimeError("TH:%u - Section %u didn't receive the digitally injected packets." % (th, section))
+                    invalid[section].append(th)
 
             # Go on to noise packets
             if(type(packet) != CustomWord or packet.word != 0xBEEFBEEF or packet.payload != th):
@@ -185,6 +187,10 @@ class FullBaselineScan(ScanTest):
             if(type(packet) != CustomWord or packet.word != 0xDEAFABBA):
                 raise RuntimeError('Unexpected packet here')
 
+        for i,l in enumerate(invalid):
+            if len(l) > 0:
+                print("Lane %d missing digital injections for threshold trials: %s" % (i, str(l)))
+
     @customplot(('VCASN (#)', 'Section (#)'), 'Baseline distribution')
     def plot(self, show=True, saveas=None, ax=None):
         result_imshow = self.result
@@ -193,7 +199,7 @@ class FullBaselineScan(ScanTest):
                 if(result_imshow[j][i] > 200):
                     result_imshow[j][i] = 200
 
-        image = ax.imshow(result_imshow)
+        image = ax.imshow(result_imshow, vmin=0, vmax=200)
 
         """
         for i in range(64):
