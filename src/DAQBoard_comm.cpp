@@ -42,6 +42,11 @@ ChipIf::ChipIf(uint8_t id, FPGAIf* fpga_ptr) {
 		arcadia_reg_param const& param = reg.second;
 		GCR_address_array[param.word_address] |= (param.default_value << param.offset);
 	}
+
+	packets_write = nullptr;
+
+	timeout = 0;
+	idle_timeout = 0;
 }
 
 int ChipIf::spi_transfer(ARCADIA_command command, uint16_t payload, uint32_t* rcv_data){
@@ -219,7 +224,7 @@ int ChipIf::write_icr(std::string icr_reg, uint16_t value) {
 	if (spi_unavailable)
 		return -1;
 
-	if (icr_reg != "ICR0" && icr_reg != "ICR1"){
+	if (icr_reg != "ICR0" && icr_reg != "ICR1") {
 		std::cerr << "No such reg: " << icr_reg << std::endl;
 		return -1;
 	}
@@ -314,14 +319,14 @@ int ChipIf::send_pulse(uint32_t t_on, uint32_t t_off, uint32_t tp_number) {
 	return 0;
 }
 
-int ChipIf::fifo_read(uint32_t stopafter) {
+size_t ChipIf::fifo_read(size_t num_packets) {
 	const uhal::Node& Node_fifo_data = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".data");
 	uint32_t packets_fifo = fifo_count();
 
 	if (packets_fifo == 0)
 		return -1;
 
-	if (packet_count > max_packets) {
+	if (packets_write->size() > max_packets) {
 		std::cerr << "Currently reached maximum packets. Unable to read " << std::dec << packets_fifo << " packets from FPGA." << std::endl;
 		Node_fifo_data.readBlock(packets_fifo*2);
 		sleep(1);
@@ -329,8 +334,8 @@ int ChipIf::fifo_read(uint32_t stopafter) {
 	}
 
 	uint32_t packets_to_read;
-	if(stopafter) {
-		packets_to_read = stopafter - packet_count;
+	if(num_packets) {
+		packets_to_read = num_packets - packets_write->size();
 		if(packets_to_read > packets_fifo)
 			packets_to_read = packets_fifo;
 	} else
@@ -350,17 +355,17 @@ int ChipIf::fifo_read(uint32_t stopafter) {
 	for (size_t index = 0; index < bytes_read-1; index += 2) {
 		uint64_t p = data[index];
 		p = (p << 32) | data[index+1];
-		packets.push_back( p );
+		packets_write->push_back( p );
 	}
-
-	packet_count += bytes_read/2;
 
 	return bytes_read/2;
 }
 
-void ChipIf::fifo_read_loop(uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout) {
+void ChipIf::fifo_read_loop() {
 	std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
 	std::chrono::steady_clock::time_point idle_start_time = start_time;
+
+	size_t total_packets = 0;
 
 	while (run_flag) {
 		/*
@@ -375,65 +380,45 @@ void ChipIf::fifo_read_loop(uint32_t stopafter, uint32_t timeout, uint32_t idle_
 			uint32_t elapsed_secs_idle =
 				std::chrono::duration_cast<std::chrono::seconds>(time_now-idle_start_time).count();
 
-			if (elapsed_secs_idle > idle_timeout){
+			if (elapsed_secs_idle > idle_timeout)
 				run_flag = false;
-				if (stopafter !=0 && packet_count < stopafter)
-					daq_timeout = true;
-			}
 		}
 
 		// Timeout
-		if (timeout != 0){
-			if (elapsed_secs > timeout){
-				run_flag = false;
-				if (stopafter !=0 && packet_count < stopafter)
-					daq_timeout = true;
-			}
-		}
+		if (timeout != 0 && elapsed_secs > timeout)
+			run_flag = false;
 
 		/*
 		 * No timeouts -> Continue!
 		 */
+		size_t packets_to_read = (stop_after) ? stop_after - total_packets : 0;
 
 		idle_start_time = std::chrono::steady_clock::now();
-		fifo_read(stopafter);
+		fifo_read(packets_to_read);
 
 		// stop if maxpkg found
-		if (stopafter != 0 && packet_count >= stopafter)
+		if (stop_after != 0 && packets_write->size() >= stop_after)
 			run_flag = false;
 	}
 }
 
 
-int ChipIf::fifo_read_start(uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout) {
-	packets.reserve(100*1024*1024/64);
+void ChipIf::fifo_read_start() {
+	packets_write->reserve(100*1024*1024/64);
 
 	packets_reset();
 
 	run_flag = true;
-	dataread_thread = std::thread(&ChipIf::fifo_read_loop, this, stopafter, timeout, idle_timeout);
-
-	//std::cout << chip_id << ": Data read thread started" << std::endl;
-
-	return 0;
+	dataread_thread = std::thread(&ChipIf::fifo_read_loop, this);
 }
 
-void ChipIf::packets_reset() {
-	packets.clear();
-	packet_count = 0;
-}
-
-int ChipIf::fifo_read_stop() {
+void ChipIf::fifo_read_stop() {
 	run_flag = false;
-
-	return 0;
 }
 
 
-int ChipIf::fifo_read_wait() {
+void ChipIf::fifo_read_wait() {
 	dataread_thread.join();
-
-	return 0;
 }
 
 
@@ -451,11 +436,6 @@ uint32_t ChipIf::fifo_count() {
 		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value of " + std::to_string(occupancy) + " (odd instead of even)");
 
 	return (uint32_t) occupancy/2;
-}
-
-
-uint32_t ChipIf::packets_count() {
-	return packet_count;
 }
 
 int ChipIf::fifo_reset() {
@@ -576,6 +556,62 @@ uint32_t ChipIf::calibrate_deserializers() {
 	}
 
 	return locked;
+}
+
+void ChipIf::packets_reset() {
+	if(run_flag)
+		packets_write->clear();
+
+	else
+		fifo_reset();
+}
+
+void ChipIf::packets_read_start() {
+	if (packets_write == nullptr)
+		packets_write = &packetsA;
+
+	fifo_read_start();
+}
+
+void ChipIf::packets_read_wait() {
+	fifo_read_wait();
+}
+
+void ChipIf::packets_read_stop() {
+	fifo_read_stop();
+}
+
+bool ChipIf::packets_read_active() {
+	return run_flag;
+}
+
+uint32_t ChipIf::packets_count() {
+	if(run_flag)
+		return packets_write->size();
+	else
+		return fifo_count();
+}
+
+std::vector<uint64_t>* ChipIf::packets_read(size_t packets = 0) {
+	if(run_flag) {
+		fifo_read_stop();
+		fifo_read_wait();
+
+		auto data = packets_write;
+		packets_write = (packets_write == &packetsA) ? &packetsB : &packetsA;
+
+		fifo_read_start();
+
+		return data;
+	}
+
+	if (packets_write == nullptr)
+		packets_write = &packetsA;
+	else
+		packets_write->clear();
+
+	fifo_read(packets);
+	return packets_write;
 }
 
 /*

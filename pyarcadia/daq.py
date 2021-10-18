@@ -61,8 +61,6 @@ class Fpga(FPGAIf):
     :ivar sections_to_mask: Sections to filter out during FPGA readout
     """
 
-    sections_to_mask = []
-
     def init_connection(self, xml_file=None):
         """Initializes connectivity with the FPGA through IPBus
 
@@ -82,12 +80,14 @@ class Fpga(FPGAIf):
         self.init_connection(xml_file)
 
     def get_chip(self, chip_id):
-        return Chip(self.chips[chip_id])
-
+        return Chip(chip_id, self.chips[chip_id])
 
 class Chip(object):
+    id = None
+    sections_to_mask = []
 
-    def __init__(self, chipif):
+    def __init__(self, id, chipif):
+        self.id = id
         self.__chipif = chipif
 
     def __getattr__(self, attr):
@@ -165,13 +165,13 @@ class Chip(object):
         """
         return self.__chipif.packets_count()
 
-    def fifo_read(self, packets):
+    def packets_read(self, packets=0):
         """Get `packets` readout from DAQ FIFO
 
         :return: Number of packets readout
         :rtype: int
         """
-        return self.__chipif.fifo_read(self.chip_id, packets)
+        return self.__chipif.packets_read(packets)
 
     def readout(self):
         """Fetch readout packets
@@ -345,7 +345,7 @@ class Chip(object):
     def send_tp(self, pulses=1, t_on=1000, t_off=1000):
         t_on = t_on-2 if (t_on > 2) else t_on
         t_off = t_off-1 if (t_off > 1) else t_off
-        self.__chipif.send_pulse(self.chip_id, int(t_on), int(t_off), pulses)
+        self.__chipif.send_pulse(int(t_on), int(t_off), pulses)
 
     # FPGA commands
     def sync(self, lanes=0xffff):
@@ -358,11 +358,3 @@ class Chip(object):
                 lanes.append(i)
 
         return lanes
-
-    def reset_fifo(self):
-        self.__chipif.reset_fifo(self.chip_id)
-
-        time.sleep(0.1)
-
-    def listen_loop(self, stopafter=0, timeout=0, idletimeout=0):
-        self.start_daq(self.chip_id, stopafter, timeout, idletimeout)

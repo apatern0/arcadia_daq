@@ -15,7 +15,7 @@ void signal_handler(int signal){
 
 	std::cout << "interrupting DAQ..." << std::endl;
 	for (uint8_t id: {0, 1, 2})
-		fpga_ptr->chips[id]->fifo_read_stop();
+		fpga_ptr->chips[id]->packets_read_stop();
 }
 
 
@@ -195,7 +195,7 @@ int main(int argc, char** argv){
 	if (cxxopts_res.count("reset-fifo")){
 		std::cout << "resetting readout FIFOs" << std::endl;
 		for (uint8_t id: {0, 1, 2})
-			fpga.chips[id]->fifo_reset();
+			fpga.chips[id]->packets_reset();
 	}
 
 
@@ -208,8 +208,12 @@ int main(int argc, char** argv){
 
 		std::cout << "starting DAQ, Ctrl-C to stop..." << std::endl;
 
-		for(auto chipid: chipid_list)
-			fpga.chips[chipid]->fifo_read_start(maxpkts, maxtime, maxidle);
+		for(auto chipid: chipid_list) {
+			fpga.chips[chipid]->stop_after = maxpkts;
+			fpga.chips[chipid]->timeout = maxtime;
+			fpga.chips[chipid]->idle_timeout = maxidle;
+			fpga.chips[chipid]->packets_read_start();
+		}
 
 		if (daq_mode != 0){
 			usleep(500000);
@@ -217,7 +221,7 @@ int main(int argc, char** argv){
 		}
 
 		for(auto chipid: chipid_list)
-			fpga.chips[chipid]->fifo_read_wait();
+			fpga.chips[chipid]->packets_read_wait();
 
 		if (daq_mode != 0)
 			fpga.write_register("regfile.mode", 0x0);

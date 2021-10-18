@@ -16,7 +16,7 @@ class BaselineScan(ScanTest):
 
     def pre_main(self):
         super().pre_main()
-        self.sections = [x for x in range(16) if x not in self.daq.sections_to_mask]
+        self.sections = [x for x in range(16) if x not in self.chip.sections_to_mask]
 
         self.th     = [0]  * 16
         self.th_min = [1]  * 16
@@ -27,27 +27,27 @@ class BaselineScan(ScanTest):
 
     def pre_loop(self):
         for section in self.sections:
-            self.daq.write_gcrpar('BIAS%1d_VCASN' % section, 1)
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, 1)
         return
 
     def loop_body(self, iteration):
         for section in self.sections:
             # Divide et impera
             self.th[section] = math.floor((self.th_min[section] + self.th_max[section])/2)
-            self.daq.write_gcrpar('BIAS%1d_VCASN' % section, self.th[section])
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, self.th[section])
         
-        self.daq.custom_word(0xDEAFABBA)
-        self.daq.read_enable(self.sections)
-        self.daq.injection_digital(self.sections)
-        self.daq.send_tp(2)
+        self.chip.custom_word(0xDEAFABBA)
+        self.chip.read_enable(self.sections)
+        self.chip.injection_digital(self.sections)
+        self.chip.send_tp(2)
 
-        self.daq.custom_word(0xBEEFBEEF)
+        self.chip.custom_word(0xBEEFBEEF)
         for i in range(0,99):
-            self.daq.injection_analog(self.sections)
-            self.daq.injection_digital(self.sections)
+            self.chip.injection_analog(self.sections)
+            self.chip.injection_digital(self.sections)
 
-        self.daq.read_disable(self.sections)
-        self.daq.custom_word(0xCAFECAFE)
+        self.chip.read_disable(self.sections)
+        self.chip.custom_word(0xCAFECAFE)
 
         time.sleep(0.5)
         self.analysis.cleanup()
@@ -86,44 +86,53 @@ class FullBaselineScan(ScanTest):
 
     def pre_main(self):
         super().pre_main()
-        self.sections = [x for x in range(16) if x not in self.daq.sections_to_mask]
+        self.sections = [x for x in range(16) if x not in self.chip.sections_to_mask]
 
         self.range  = range(1, 64)
         self.result = np.zeros((16, 64), int)
 
     def pre_loop(self):
         for section in self.sections:
-            self.daq.write_gcrpar('BIAS%1d_VCASN' % section, 1)
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, 1)
         return
 
     def loop_body(self, iteration):
         th = iteration
 
         for section in self.sections:
-            self.daq.write_gcrpar('BIAS%1d_VCASN' % section, th)
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, th)
         
-        self.daq.custom_word(0xDEAFABBA, iteration)
-        self.daq.read_enable(self.sections)
-        self.daq.injection_digital(self.sections)
-        self.daq.send_tp(2)
+        self.chip.custom_word(0xDEAFABBA, iteration)
+        self.chip.read_enable(self.sections)
+        self.chip.injection_digital(self.sections)
+        self.chip.send_tp(2)
         time.sleep(0.1)
 
-        self.daq.custom_word(0xBEEFBEEF, iteration)
+        self.chip.custom_word(0xBEEFBEEF, iteration)
         for i in range(0,99):
-            self.daq.injection_analog(self.sections)
-            self.daq.injection_digital(self.sections)
+            self.chip.injection_analog(self.sections)
+            self.chip.injection_digital(self.sections)
 
         time.sleep(0.1)
-        self.daq.read_disable(self.sections)
-        self.daq.custom_word(0xCAFECAFE, iteration)
+        self.chip.read_disable(self.sections)
+        self.chip.custom_word(0xCAFECAFE, iteration)
 
-    def post_main(self):
+    def post_main(self, ebar=None):
         super().post_main()
-        self.readout(reset=True)
-
-        iterator = iter(self.analysis.packets)
-        packet = next(p for p in iterator if type(p) == CustomWord and p.word == 0xDEAFABBA);
         invalid = [[] for _ in range(16)]
+
+        analyzed = self.readout(reset=True)
+        if(analyzed == 0):
+            return
+
+        packet = None
+        while not isinstance(packet, CustomWord) or packet.word != 0xDEAFABBA:
+            try:
+                packet = self.analysis.packets.pop(0)
+            except IndexError:
+                analyzed = self.readout(reset = True)
+                if analyzed == 0:
+                    return
 
         while True:
             th = packet.payload
@@ -133,15 +142,22 @@ class FullBaselineScan(ScanTest):
             tps = 0
             while True:
                 try:
-                    packet = next(p for p in iterator)
-                    if(type(packet) == PixelData):
-                        dig_injs.append(packet)
-                    elif(type(packet) == TestPulse):
-                        tps += 1
-                    else:
+                    packet = self.analysis.packets.pop(0)
+                except IndexError:
+                    analyzed = self.readout(reset = True)
+                    if analyzed == 0:
                         break
-                except StopIteration:
+                    packet = self.analysis.packets.pop(0)
+
+                if(type(packet) == PixelData):
+                    dig_injs.append(packet)
+                elif(type(packet) == TestPulse):
+                    tps += 1
+                else:
                     break
+
+            if analyzed == 0:
+                break
 
             for section in self.sections:
                 packets = list(filter(lambda x:type(x) == PixelData and x.sec == section, dig_injs))
@@ -153,18 +169,25 @@ class FullBaselineScan(ScanTest):
 
             # Go on to noise packets
             if(type(packet) != CustomWord or packet.word != 0xBEEFBEEF or packet.payload != th):
-                raise RuntimeError('Unexpected packet here')
+                raise RuntimeError('Expected 0xBEEFBEEF - ', str(th), '. Received: ', packet.to_string())
 
             noise_hits = []
             while True:
                 try:
-                    packet = next(p for p in iterator)
-                    if(type(packet) == PixelData):
-                        noise_hits.append(packet)
-                    else:
+                    packet = self.analysis.packets.pop(0)
+                except IndexError:
+                    analyzed = self.readout(reset = True)
+                    if analyzed == 0:
                         break
-                except StopIteration:
+                    packet = self.analysis.packets.pop(0)
+
+                if(type(packet) == PixelData):
+                    noise_hits.append(packet)
+                else:
                     break
+
+            if analyzed == 0:
+                break
 
             for section in self.sections:
                 packets = list(filter(lambda x:type(x) == PixelData and x.sec == section, noise_hits))
@@ -174,18 +197,24 @@ class FullBaselineScan(ScanTest):
 
 
             if(type(packet) != CustomWord or packet.word != 0xCAFECAFE or packet.payload != th):
-                raise RuntimeError('Unexpected packet here')
+                raise RuntimeError('Expected 0xCAFECAFE - ', str(th), '. Received: ', packet.to_string())
             
             if(th > 63):
                 break
 
             try:
-                packet = next(iterator)
-            except StopIteration:
-                break
+                packet = self.analysis.packets.pop(0)
+            except IndexError:
+                analyzed = self.readout(reset = True)
+                try:
+                    packet = self.analysis.packets.pop(0)
+                except IndexError:
+                    break
 
             if(type(packet) != CustomWord or packet.word != 0xDEAFABBA):
-                raise RuntimeError('Unexpected packet here')
+                raise RuntimeError('Expected 0xDEAFABBA - ', str(th), '. Received: ', packet.to_string())
+
+            self.ebar.update(1)
 
         for i,l in enumerate(invalid):
             if len(l) > 0:

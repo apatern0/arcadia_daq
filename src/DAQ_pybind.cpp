@@ -20,6 +20,25 @@ void set_ipbus_loglevel(int level){
 	}
 }
 
+template<typename T, typename... Args>
+std::unique_ptr<T> make_unique(Args&&... args)
+{
+    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+
+// helper function to avoid making a copy when returning a py::array_t
+ // author: https://github.com/YannickJadoul
+ // source: https://github.com/pybind/pybind11/issues/1042#issuecomment-642215028
+template <typename Sequence>
+inline py::array_t<typename Sequence::value_type> as_pyarray(Sequence &&seq) {
+	auto size = seq.size();
+	auto data = seq.data();
+	std::unique_ptr<Sequence> seq_ptr = make_unique<Sequence>(std::move(seq));
+	auto capsule = py::capsule(seq_ptr.get(), [](void *p) { std::unique_ptr<Sequence>(reinterpret_cast<Sequence*>(p)); });
+	seq_ptr.release();
+	return py::array(size, data, capsule);
+}
+
 PYBIND11_MODULE(arcadia_daq, m) {
 	py::class_<FPGAIf>(m, "FPGAIf")
 		.def(py::init<const std::string &, const std::string &, bool>())
@@ -47,6 +66,9 @@ PYBIND11_MODULE(arcadia_daq, m) {
 
 	py::class_<ChipIf>(m, "ChipIf")
 		.def_readwrite("max_packets", &ChipIf::max_packets)
+		.def_readwrite("timeout", &ChipIf::timeout)
+		.def_readwrite("idle_timeout", &ChipIf::idle_timeout)
+
 		.def("spi_transfer", [](ChipIf &chip, ARCADIA_command command, uint16_t payload) {
 				uint32_t rcv_data;
 				int ret = chip.spi_transfer(command, payload, &rcv_data);
@@ -79,24 +101,27 @@ PYBIND11_MODULE(arcadia_daq, m) {
 				})
 
 		.def("send_pulse", &ChipIf::send_pulse)
-		.def("fifo_count", &ChipIf::fifo_count)
-		.def("fifo_reset", &ChipIf::fifo_reset)
 
-		.def("fifo_read", &ChipIf::fifo_read)
-		.def("fifo_read_start", [](ChipIf &chip, uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout) {
+		// Packets
+		.def("packets_count", &ChipIf::packets_count)
+		.def("packets_reset", &ChipIf::packets_reset)
+		.def("packets_read_start", [](ChipIf &chip) {
 			py::gil_scoped_release release;
-			chip.fifo_read_start(stopafter, timeout, idle_timeout);
+			chip.packets_read_start();
 			})
 
-		.def("fifo_read_stop", &ChipIf::fifo_read_stop)
-		.def("fifo_read_wait", &ChipIf::fifo_read_wait)
+		.def("packets_read_stop", &ChipIf::packets_read_stop)
+		.def("packets_read_wait", &ChipIf::packets_read_wait)
+		.def("packets_read_active", &ChipIf::packets_read_active)
+		.def("packets_read", [](ChipIf &chip, size_t num_packets=0) {
+			// Expose raw memory as NUMPY array
+			auto packets = chip.packets_read(num_packets);
+			if(packets == nullptr)
+				return py::array_t<uint64_t>(0, 0);
 
-		.def("readout", [](ChipIf &chip) {
-				//std::cout << "Fetching " << chip.packets.size() << " packets into array!" << std::endl;
-				auto result = py::make_tuple(chip.packets.size(), chip.packets.data());
-				chip.packets_reset();
-				return result;
-				})
+		    return as_pyarray(std::move(*packets));
+		})
+
 		.def("packets_reset", &ChipIf::packets_reset)
 		.def("packets_count", &ChipIf::packets_count)
 

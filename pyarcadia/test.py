@@ -76,11 +76,11 @@ class ChipListen:
 
     def start(self):
         self.active = True
-        self.chip.listen_loop()
+        self.chip.packets_read_start()
 
     def stop(self):
         self.active = False
-        self.chip.stop_chip(self.chip.chip_id)
+        self.chip.packets_read_stop()
 
 class Test:
     logger = None
@@ -103,10 +103,10 @@ class Test:
         self.load_cfg()
 
         # Initialize Chip
-        self.chip.init_connection()
+        self.fpga.init_connection()
         self.chip.logger = self.logger
-        if 'sections_to_mask' in self.cfg:
-            stm = self.cfg['sections_to_mask'].split(",")
+        if 'sections_to_mask' in self.chip.cfg:
+            stm = self.chip.cfg['sections_to_mask'].split(",")
             print("Masking sections: %s" % str(stm))
             stm = [int(x) for x in stm]
             self.chip.sections_to_mask = stm
@@ -136,10 +136,12 @@ class Test:
         config = configparser.ConfigParser()
         config.read('./chip.ini')
 
-        if self.chip.chip_id not in config.sections():
+        this_chip = 'id'+str(self.chip.id)
+        
+        if this_chip not in config.sections():
             return False
 
-        self.cfg = config[self.chip.chip_id]
+        self.chip.cfg = config[this_chip]
 
     def set_timestamp_resolution(self, res_s):
         clock_hz = 80E6
@@ -194,9 +196,9 @@ class Test:
         
     def check_stability(self):
         for i in range(8):
-            self.chip.reset_fifo()
-            self.chip.clear_packets()
-            packets_in_fifo = self.chip.get_fifo_occupancy()
+            self.chip.packets_reset()
+            self.chip.packets_reset()
+            packets_in_fifo = self.chip.packets_count()
             if packets_in_fifo != 0:
                 time.sleep(0.01)
                 continue
@@ -216,8 +218,8 @@ class Test:
             silence = False
             while iteration < 5:
                 self.chip.enable_readout(onecold(to_mask, 0xffff))
-                self.chip.reset_fifo()
-                self.chip.clear_packets()
+                self.chip.packets_reset()
+                self.chip.packets_reset()
 
                 if self.check_stability():
                     silence = True
@@ -302,6 +304,8 @@ class Test:
                 print("\t... but not deaf!")
                 break
 
+            iteration += 1
+
 
         if not ready:
             print()
@@ -315,8 +319,7 @@ class Test:
         self.chip.noforce_injection()
         self.chip.noforce_nomask()
 
-        self.chip.reset_fifo()
-        self.chip.clear_packets()
+        self.chip.packets_reset()
         self.chip.send_tp(1)
         time.sleep(0.5)
         self.readout(30)
@@ -379,9 +382,9 @@ class Test:
 
             if ok:
                 if auto_read:
-                    self.chip.reset_fifo()
+                    self.chip.packets_reset()
                     self.reader.start()
-    
+
                 return
 
         raise RuntimeError('Unable to receive data from the chip!')
@@ -400,20 +403,27 @@ class Test:
             self.analysis.cleanup()
 
         if not self.reader.active:
-            in_fifo = self.chip.get_fifo_occupancy()
+            in_fifo = self.chip.packets_count()
 
-            if(in_fifo == 0):
+            if in_fifo == 0:
                 return 0
 
             packets_to_read = min(in_fifo, max_packets) if max_packets is not None else in_fifo
-            packets_read = self.chip.readout_burst(packets_to_read)
+            readout = self.chip.packets_read(packets_to_read)
     
-            if(packets_read < packets_to_read and fail_on_error):
-                raise ValueError(f'Readout {packets_read} out of {packets_to_read}')
+            if(len(readout) < packets_to_read and fail_on_error):
+                raise ValueError(f'Readout {readout} packets out of {packets_to_read}')
         else:
-            max_packets = None
+            for _ in range(5):
+                in_fifo = self.chip.packets_count()
+                if in_fifo != 0:
+                    break
 
-        readout = self.chip.readout()
-        analyzed = self.analysis.analyze(readout)
+                time.sleep(1)
 
-        return analyzed
+            if in_fifo == 0:
+                return 0
+            
+            readout = self.chip.packets_read()
+
+        return self.analysis.analyze(readout)

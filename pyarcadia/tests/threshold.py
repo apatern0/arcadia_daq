@@ -17,13 +17,13 @@ class ThresholdScan(ScanTest):
     def pre_main(self):
         super().pre_main()
 
-        self.daq.injection_digital(0xffff)
-        self.daq.read_enable(0xffff)
-        self.daq.clock_enable(0xffff)
-        self.daq.injection_enable(0xffff)
+        self.chip.injection_digital(0xffff)
+        self.chip.read_enable(0xffff)
+        self.chip.clock_enable(0xffff)
+        self.chip.injection_enable(0xffff)
 
-        self.daq.clear_packets()
-        self.daq.send_tp(1)
+        self.chip.packets_reset()
+        self.chip.send_tp(1)
         time.sleep(0.1)
         read = self.readout(reset=True)
 
@@ -53,35 +53,35 @@ class ThresholdScan(ScanTest):
 
     def pre_loop(self):
         for section in self.sections:
-            self.daq.write_gcrpar('BIAS%1d_VCASN' % section, 1)
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, 1)
         return
 
     def loop_body(self, iteration):
         th = iteration
 
         for section in self.sections:
-            self.daq.write_gcrpar('BIAS%1d_VCASN' % section, th)
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, th)
         
-        self.daq.custom_word(0xDEAFABBA, iteration)
-        self.daq.read_enable(self.sections)
-        self.daq.injection_digital(self.sections)
-        self.daq.send_tp(2)
+        self.chip.custom_word(0xDEAFABBA, iteration)
+        self.chip.read_enable(self.sections)
+        self.chip.injection_digital(self.sections)
+        self.chip.send_tp(2)
         time.sleep(0.1)
 
-        self.daq.custom_word(0xBEEFBEEF, iteration)
-        self.daq.injection_analog(self.sections)
-        self.daq.send_tp(self.injections)
+        self.chip.custom_word(0xBEEFBEEF, iteration)
+        self.chip.injection_analog(self.sections)
+        self.chip.send_tp(self.injections)
         time.sleep(0.2)
 
-        self.daq.custom_word(0xDEADBEEF, iteration)
+        self.chip.custom_word(0xDEADBEEF, iteration)
         for i in range(0,self.injections):
-            self.daq.injection_analog(self.sections)
-            self.daq.injection_digital(self.sections)
+            self.chip.injection_analog(self.sections)
+            self.chip.injection_digital(self.sections)
 
         time.sleep(0.2)
 
-        self.daq.read_disable(self.sections)
-        self.daq.custom_word(0xCAFECAFE, iteration)
+        self.chip.read_disable(self.sections)
+        self.chip.custom_word(0xCAFECAFE, iteration)
 
     def post_main(self):
         super().post_main()

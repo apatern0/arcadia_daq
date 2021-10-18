@@ -9,8 +9,10 @@ x.logger.setLevel(logging.WARNING)
 x.initialize()
 
 x.analysis.cleanup()
-x.daq.pixels_mask()
-x.daq.pixels_cfg(0b01, 0xffff, [0], [0], 0b01, 0xf)
+x.chip.pixels_mask()
+x.chip.pixels_cfg(0b01, 0xffff, [0], [0], 0b01, 0xf)
 
-x.loop()
+x.loop_parallel()
+print("Saving plots...")
 x.plot(show=False, saveas='results/baseline')
+print("Saved...")

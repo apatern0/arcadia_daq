@@ -189,17 +189,29 @@ private:
 	bool daq_timeout;
 	bool spi_unavailable;
 
-	std::atomic_uint packet_count;
-
 	std::vector<uint16_t> GCR_address_array;
 	std::vector<uint32_t> ctrl_address_array;
 
-	void fifo_read_loop(uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
+	std::vector<uint64_t> packetsA;
+	std::vector<uint64_t> packetsB;
+
+	std::vector<uint64_t> *packets_write;
+
+	// FPGA FIFO Management
+	int fifo_reset();
+	size_t fifo_read(size_t num_packets);
+	void fifo_read_start();
+	void fifo_read_loop();
+	void fifo_read_stop();
+	void fifo_read_wait();
+	uint32_t fifo_count();
 
 public:
 	ChipIf(uint8_t id, FPGAIf *fpga_ptr);
-	std::vector<uint64_t> packets;
 	size_t max_packets;
+	size_t stop_after;
+	uint32_t timeout;
+	uint32_t idle_timeout;
 
 	int send_controller_command(std::string cmd, uint32_t arg, uint32_t* resp);
 
@@ -221,18 +233,14 @@ public:
 
 	int write_icr(std::string icr_reg, uint16_t data);
 
-	// FPGA FIFO Management
-	int fifo_reset();
-	int fifo_read(uint32_t stopafter);
-	int fifo_read_start(uint32_t stopafter, uint32_t timeout, uint32_t idle_timeout);
-	int fifo_read_stop();
-	int fifo_read_wait();
-	uint32_t fifo_count();
-
 	// SW FIFO Management
 	void packets_reset();
+	void packets_read_start();
+	void packets_read_stop();
+	void packets_read_wait();
+	bool packets_read_active();
 	uint32_t packets_count();
-	uint32_t packets_read(std::vector<uint64_t> *data);
+	std::vector<uint64_t>* packets_read(size_t packets);
 };
 
 class FPGAIf {
