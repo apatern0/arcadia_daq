@@ -12,7 +12,12 @@ class ParallelAnalysis(threading.Thread):
         self.test = test
 
     def run(self):
-        self.test.post_main()
+        for i in self.test.range:
+            for p in self.test.elab_phases:
+                p(i)
+
+            self.test.ebar.update(1)
+
         self.test.chip.packets_read_stop()
 
 
@@ -24,6 +29,9 @@ class ScanTest(Test):
 
     reader = None
     ebar = None
+
+    ctrl_phases = []
+    elab_phases = []
 
     def pre_main(self):
         return
@@ -45,11 +53,16 @@ class ScanTest(Test):
 
         with tqdm(total=len(self.range), desc='Acquisition') as bar:
             for i in self.range:
-                self.pre_loop()
-                self.loop_body(i)
-                self.post_loop()
+                for p in self.ctrl_phases:
+                    p(i)
                 bar.update(1)
         
+        with tqdm(total=len(self.range), desc='Elaboration') as ebar:
+            for i in self.range:
+                for p in self.elab_phases:
+                    p(i)
+                ebar.update(1)
+
         self.post_main()
 
     def loop_parallel(self):
@@ -61,13 +74,27 @@ class ScanTest(Test):
 
         with tqdm(total=len(self.range), desc='Acquisition') as abar, tqdm(total=len(self.range), desc='Elaboration') as self.ebar:
             for i in self.range:
-                self.pre_loop()
-                self.loop_body(i)
-                self.post_loop()
+                for p in self.ctrl_phases:
+                    p(i)
                 abar.update(1)
 
             analysis_thread.join()
+ 
+    def loop_reactive(self):
+        self.pre_main()
+
+        lp = len(self.ctrl_phases)
+
+        with tqdm(total=len(self.range), desc='Test') as bar:
+            for i in self.range:
+                for p in range(lp):
+                    self.ctrl_phases[p](i)
+                    self.elab_phases[p](i)
+
+                bar.update(1)
         
+        self.post_main()
+
     def __init__(self):
         super().__init__()
 

@@ -85,6 +85,12 @@ class FullBaselineScan(ScanTest):
     range = None
 
     sequence = None
+    invalid = []
+
+    def __init__(self):
+        super().__init__()
+        self.ctrl_phases = [self.ctrl_phase0, self.ctrl_phase1]
+        self.elab_phases = [self.elab_phase0, self.elab_phase1]
 
     def pre_main(self):
         super().pre_main()
@@ -92,25 +98,38 @@ class FullBaselineScan(ScanTest):
 
         self.range  = range(1, 64)
         self.result = np.zeros((16, 64), int)
+        self.invalid = [0] * 16
 
-    def pre_loop(self):
+    def ctrl_phase0(self, iteration):
+        self.chip.custom_word(0xDEAFABBA, iteration)
+
         for section in self.sections:
             self.chip.write_gcrpar('BIAS%1d_VCASN' % section, 1)
-        return
-
-    def loop_body(self, iteration):
-        th = iteration
-
-        for section in self.sections:
-            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, th)
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, iteration)
         
-        self.chip.custom_word(0xDEAFABBA, iteration)
         self.chip.read_enable(self.sections)
         self.chip.injection_digital(self.sections)
         self.chip.send_tp(2)
         time.sleep(0.1)
-
         self.chip.custom_word(0xBEEFBEEF, iteration)
+
+    def elab_phase0(self, iteration):
+        # Start of test
+        results = self.elaborate_until(0xDEAFABBA)
+        th = results.payload
+
+        # Check Digital injections
+        dig_injs = self.elaborate_until(0xBEEFBEEF)
+        if dig_injs.word_error or dig_injs.incomplete:
+            raise ValueError()
+
+        for section in self.sections:
+            packets = list(filter(lambda x : x.sec == section, dig_injs.data))
+
+            if len(packets) < len(dig_injs.tps):
+                self.invalid[section].append(th)
+
+    def ctrl_phase1(self, iteration):
         for i in range(0,99):
             self.chip.injection_analog(self.sections)
             self.chip.injection_digital(self.sections)
@@ -119,43 +138,16 @@ class FullBaselineScan(ScanTest):
         self.chip.read_disable(self.sections)
         self.chip.custom_word(0xCAFECAFE, iteration)
 
-    def post_main(self, ebar=None):
-        super().post_main()
-        invalid = [[] for _ in range(16)]
+    def elab_phase1(self, iteration):
+        # Check Noise hits
+        noisy_hits = self.elaborate_until(0xCAFECAFE)
+        if noisy_hits.word_error or noisy_hits.incomplete:
+            raise ValueError()
 
-        th = 0
-        while th != 63:
-            # Start of test
-            results = self.elaborate_until(0xDEAFABBA)
-            th = results.payload
+        for section in self.sections:
+            packets = list(filter(lambda x : x.sec == section, noisy_hits.data))
 
-            # Check Digital injections
-            dig_injs = self.elaborate_until(0xBEEFBEEF)
-            if dig_injs.word_error or dig_injs.incomplete:
-                break
-
-            for section in self.sections:
-                packets = list(filter(lambda x : x.sec == section, dig_injs.data))
-
-                if len(packets) < len(dig_injs.tps):
-                    invalid[section].append(th)
-
-            # Check Noise hits
-            noisy_hits = self.elaborate_until(0xCAFECAFE)
-            if noisy_hits.word_error or noisy_hits.incomplete:
-                break
-
-            for section in self.sections:
-                packets = list(filter(lambda x : x.sec == section, noisy_hits.data))
-
-                self.result[section][th] = len(packets)
-
-            # Advance bar!
-            self.ebar.update(1)
-
-        for i,l in enumerate(invalid):
-            if len(l) > 0:
-                print("Lane %d missing digital injections for threshold trials: %s" % (i, str(l)))
+            self.result[section][iteration] = len(packets)
 
     @customplot(('VCASN (#)', 'Section (#)'), 'Baseline distribution')
     def plot(self, show=True, saveas=None, ax=None):
