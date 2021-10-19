@@ -26,7 +26,6 @@ class ScanTest(Test):
     ebar = None
 
     def pre_main(self):
-        self.analysis.cleanup()
         return
 
     def pre_loop(self):

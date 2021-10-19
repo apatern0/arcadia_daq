@@ -8,7 +8,6 @@ x.set_timestamp_resolution(1E-6)
 x.logger.setLevel(logging.WARNING)
 x.initialize()
 
-x.analysis.cleanup()
 x.chip.pixels_mask()
 x.chip.pixels_cfg(0b01, 0xffff, [0], [0], 0b01, 0xf)
 

@@ -86,7 +86,6 @@ class Test:
     logger = None
     fpga = None
     chip = None
-    analysis = None
 
     reader = None
     cfg = []
@@ -96,7 +95,7 @@ class Test:
     def __init__(self):
         self.fpga = Fpga()
         self.chip = self.fpga.get_chip(0)
-        self.analysis = DataAnalysis()
+        self.sequence = Sequence()
         self.logger = logging.getLogger(__name__)
 
         # Load configuration
@@ -110,10 +109,6 @@ class Test:
             print("Masking sections: %s" % str(stm))
             stm = [int(x) for x in stm]
             self.chip.sections_to_mask = stm
-
-        # Initialize DataAnalysis
-        self.analysis = DataAnalysis()
-        self.analysis.logger = self.logger
 
         # Initialize Logger
         ch = logging.StreamHandler()
@@ -158,7 +153,7 @@ class Test:
         fpga_clock_divider = math.floor(fpga_clock_divider)
         self.logger.info('Fpga clock divider: %d' % fpga_clock_divider)
 
-        self.analysis.ts_hz = 1/res_s
+        self.ts_us = res_s/1E6
 
         self.chip.write_gcrpar('TIMING_CLK_DIVIDER', chip_clock_divider)
         self.chip.set_timestamp_period(fpga_clock_divider)
@@ -226,8 +221,8 @@ class Test:
                     break
 
                 # Get a sample of the noisy data
-                analyzed = self.readout(30)
-                if analyzed == 0:
+                readout = self.readout(30)
+                if readout == 0:
                     silence = True
                     break
 
@@ -235,8 +230,9 @@ class Test:
                 noisy_lanes = []
                 unsync_lanes = []
                 read = 0
-                for pkt in self.analysis.packets:
-                    if isinstance(pkt, PixelData):
+                elaborated = Sequence(readout)
+                for pkt in elaborated:
+                    if isinstance(pkt, ChipData):
                         read += 1
                         if pkt.ser == pkt.sec and pkt.ser not in noisy_lanes:
                             noisy_lanes.append(pkt.ser)
@@ -274,12 +270,13 @@ class Test:
 
             # Send a TP, expect a packet per stable lane
             self.chip.send_tp(1)
-            self.readout(40)
+            readout = self.readout(40)
 
             lanes_check = []
             lanes_invalid = []
-            for packet in self.analysis.packets:
-                if isinstance(packet, PixelData):
+            elaborated = Sequence(readout)
+            for packet in elaborated:
+                if isinstance(packet, ChipData):
                     if packet.ser != packet.sec or packet.col != 0 or packet.corepr != 0:
                         if packet.ser not in lanes_invalid:
                             lanes_invalid.append(packet.ser)
@@ -322,16 +319,17 @@ class Test:
         self.chip.packets_reset()
         self.chip.send_tp(1)
         time.sleep(0.5)
-        self.readout(30)
+        readout = self.readout(30)
+        elaborated = Sequence(readout)
 
-        tp = filter(lambda x:(type(x) == TestPulse), self.analysis.packets)
-        data = filter(lambda x:(type(x) == PixelData), self.analysis.packets)
+        tp = filter(lambda x:(type(x) == TestPulse), elaborated)
+        data = filter(lambda x:(type(x) == ChipData), elaborated)
 
         try:
             tp = next(tp)
         except StopIteration:
             self.logger.fatal("Sync procedure returned no Test Pulses. Check chip status. Dump:")
-            self.analysis.dump()
+            elaborated.dump()
             print("\n")
             raise RuntimeError("Check previous CRITICAL error")
 
@@ -339,7 +337,7 @@ class Test:
             data = next(data)
         except StopIteration:
             self.logger.fatal("Sync procedure returned no Data Packets. Check chip status. Dump:")
-            self.analysis.dump()
+            elaborated.dump()
             print("\n")
             raise RuntimeError("Check previous CRITICAL error")
 
@@ -399,31 +397,44 @@ class Test:
         return synced
 
     def readout(self, max_packets=None, fail_on_error=True, reset=True):
-        if reset is True:
-            self.analysis.cleanup()
-
-        if not self.reader.active:
+        for _ in range(5):
             in_fifo = self.chip.packets_count()
+            if in_fifo != 0:
+                break
 
-            if in_fifo == 0:
-                return 0
+            time.sleep(1)
 
-            packets_to_read = min(in_fifo, max_packets) if max_packets is not None else in_fifo
-            readout = self.chip.packets_read(packets_to_read)
-    
-            if(len(readout) < packets_to_read and fail_on_error):
-                raise ValueError(f'Readout {readout} packets out of {packets_to_read}')
-        else:
-            for _ in range(5):
-                in_fifo = self.chip.packets_count()
-                if in_fifo != 0:
-                    break
+        if in_fifo == 0:
+            raise StopIteration()
 
-                time.sleep(1)
+        if self.reader.active:
+            return self.chip.packets_read()
 
-            if in_fifo == 0:
-                return 0
-            
-            readout = self.chip.packets_read()
 
-        return self.analysis.analyze(readout)
+        packets_to_read = min(in_fifo, max_packets) if max_packets is not None else in_fifo
+        readout = self.chip.packets_read(packets_to_read)
+
+        if(len(readout) < packets_to_read and fail_on_error):
+            raise ValueError(f'Readout {readout} packets out of {packets_to_read}')
+
+        return readout
+
+    def elaborate_until(self, word, payload=None):
+        results = Results()
+
+        for _ in range(20):
+            results.extend(self.sequence.pop_until(word))
+
+            if not results.incomplete:
+                return results
+
+            # Incomplete readout, try to read some more.
+            try:
+                r = self.readout()
+            except StopIteration:
+                return results
+
+            # Elaborate
+            self.sequence = Sequence(r)
+
+        return results

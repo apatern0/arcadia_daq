@@ -1,25 +1,61 @@
 import numpy as np
+from tabulate import tabulate
 import time
 
-class Packet:
-    binstr = ""
-    ts_base = 0
-    ts_hz = 1
+class Data:
+    word = 0
+    bits = 63
 
-    def to_string(self):
-        return self.binstr
+    bytes = []
+
+    def __init__(self, word):
+        self.word = int(word)
+
+    def __index__(self):
+        return self.word
+
+    def __format__(self, format_string):
+        string = ""
+        word = self.word
+        for i in range(0, self.bits, 8):
+            word = word >> i*8
+            string += format((word & 0xff), format_string)
+
+        return string
+
+    def to_hex(self):
+        string = ""
+        word = self.word
+        for i in range(0, self.bits, 8):
+            word = word >> i*8
+            string += format((word & 0xff), '2x')
+
+        return string
+
+    def to_bytes(self):
+        return [(self.word >> 8*x) & 0xff for x in range(8)]
 
 class Pixel:
     row    = 0
     col    = 0
-    dcol   = 0
-    corepr = 0
-    sec    = 0
 
-    def to_string(self):
-        return "Pixel @ [%3d][%3d] SEC %d DCOL %d COREPR %d" % (self.row, self.col, self.sec, self.dcol, self.corepr)
+    def __init__(self, row, col):
+        self.row = row
+        self.col = col
 
-class PixelData(Packet):
+    def get_sec(self):
+        return self.col / 32
+
+    def get_dcol(self):
+        return (self.col % 32) / 16
+
+    def get_corepr(self):
+        return self.row / 4
+
+    def __str__(self):
+        return "Pixel @ [%3d][%3d] SEC %d DCOL %d COREPR %d" % (self.row, self.col, self.get_sec(), self.get_dcol(), self.get_corepr())
+
+class ChipData(Data):
     bottom  = 0
     hitmap  = 0
     corepr  = 0
@@ -27,213 +63,215 @@ class PixelData(Packet):
     sec     = 0
     ser     = 0
     ts      = 0
-    ts_ext  = 0
+
     ts_fpga = 0
     ts_sw   = 0
-    ts_base = 0
-    last_tp = 0
-    binstr = ""
+    ts_ext  = 0
+
     pixels = []
 
-    def to_string(self):
-        packet_info = "%s - SER[%2d] @ [%2d][%3d][%2x] = %s (%1d)" % (self.binstr, self.ser, self.sec, self.col, self.corepr, format(self.hitmap, '#010b'), self.bottom)
+    def __init__(self, word, sequence):
+        super().__init__(word)
+        wb = self.to_bytes()
 
-        ts_info = "%u [ %u us - %u (TP-CHIP) - %u (TP-DAQ) - %u (TS_SW) ]" % (
-            self.ts_ext-self.ts_base,
-            (self.ts_ext-self.ts_base)*1E6/self.ts_hz,
-            (self.ts_ext-self.last_tp     )*1E6/self.ts_hz,
-            (self.ts_fpga-self.last_tp    )*1E6/self.ts_hz,
-            self.ts_sw
-        )
+        self.bottom  = (wb[0] >> 0) & 0x01
+        self.hitmap  = (((wb[1] >> 0) & 0x01) << 7) | ((wb[0] >> 1) & 0x7F)
+        self.corepr  = (wb[1] >> 1) & 0x7F
+        self.col     = (wb[2] >> 0) & 0x0F
+        self.sec     = (wb[2] >> 4) & 0x0F
+        self.ts      = wb[3]
+        self.ts_fpga = (wb[6] << 16) | (wb[5] << 8) | wb[4]
+        self.ser     = wb[7] & 0xF
 
-        return "%s @ %s" % (packet_info, ts_info)
+        self.ts_sw   = 0
+        self.pixels = []
 
-class TestPulse(Packet):
+        for pix in range(0,7):
+            if (self.hitmap >> pix) & 0b1 == 0:
+                continue
+
+            pr_row = ((pix % 4) > 1)
+            pr_col = (pix % 2)
+
+            if pix > 3:
+                corepr = self.corepr
+                row = 2
+            else:
+                corepr = self.corepr + 1 - self.bottom
+                row = 0
+
+            row += corepr*4 + pr_row
+            col = self.sec*32 + self.col*2 + pr_col
+
+            p = Pixel(row, col)
+            self.pixels.append(p)
+
+        if sequence is not None:
+            self.ts_sw  = sequence.ts
+
+        self.extend_timestamp()
+
+    def extend_timestamp(self):
+        ts_fpga_msb = (self.ts_fpga & 0xffff00)
+        ts_fpga_lsb = (self.ts_fpga & 0xff)
+        if (self.ts > ts_fpga_lsb):
+            ts_fpga_msb = (ts_fpga_msb-0x100)
+
+        self.ts_ext  = (self.ts_sw << 24) | ts_fpga_msb | self.ts
+
+    def __str__(self):
+        return "%s - SER[%2d] @ [%2d][%3d][%2x] = %s (%1d)" % (self.to_hex(), self.ser, self.sec, self.col, self.corepr, format(self.hitmap, '#010b'), self.bottom)
+
+class TestPulse(Data):
     ts = 0
     ts_sw = 0
-    ts_base = 0
-    binstr = ""
+    ts_ext = 0
 
-    def to_string(self):
-        return "%s -      TP @ %d (%.3f us)" % (self.binstr, self.ts-self.ts_base, 1E6*(self.ts-self.ts_base)/self.ts_hz)
+    def __init__(self, word):
+        super().__init__(word)
+    
+        wb = self.to_bytes()
+        self.ts = (wb[2] << 16) | (wb[1] << 8) | wb[0]
+        self.ts_ext = self.ts
 
-class CustomWord(Packet):
-    binstr = ""
-    word = 0
-    payload = 0
+    def __str__(self):
+        return "%s -      TP @ %d" % (self.to_hex(), self.ts_ext)
 
-    def to_string(self):
-        return "%s -    WORD : 0x%x - PAYLOAD : 0x%x" % (self.binstr, self.word, self.payload)
+class CustomWord(Data):
+    def __init__(self, word):
+        super().__init__(word)
 
-class DataAnalysis:
-    packets = []
+        wb = self.to_bytes()
+        self.word = (wb[6] << 40) | (wb[5] << 32) | (wb[4] << 24) | (wb[3] << 16) | (wb[2] << 8) | wb[1]
+        self.payload = wb[0]
 
-    prs = np.zeros((256,128))
-    topslaves = np.zeros((256,128))
-    secs = np.zeros(16)
-    nf = 0
-    topslaves_sec = np.zeros(16)
-    tot = 0
-    fixed = np.ones(43)
+    def __str__(self):
+        return "%s -    WORD : 0x%x - PAYLOAD : 0x%x" % (self.to_hex(), self.word, self.payload)
 
-    ts_base = -1
-    ts_hz = 320E6
-    ts_sw = 0
+class FPGAData(Data):
+    def elaborate(self, sequence=None):
+        #self.logger.info("RawFPGAData: %2x - %#010b" % (self, self))
+        ctrl = self.word >> ((8*7)+4)
 
-    logger = None
+        # FPGA timestamp overflow
+        if ctrl == 0xf:
+            if sequence is not None:
+                sequence.ts_sw += 1
 
-    def reverse_bitorder(self, byte):
-        return int('{:08b}'.format(byte)[::-1], 2)
+            return None
 
-    def analyze(self, packets):
-        slept = 0
-        read = 0
-        last_tp = 0
+        # Test pulse
+        if ctrl == 0xa:
+            tp = TestPulse(self.word)
+
+            #self.logger.info("Found test pulse @ %x" % tp.ts)
+            return tp
+
+        if ctrl == 0xc:
+            c = CustomWord(self.word)
+
+            return c
+
+        # Chip data
+        p = ChipData(self.word, sequence)
+        return p
+
+class Results:
+    def __init__(self, tps=None, data=None):
+        self.tps = tps if tps is not None else []
+        self.data = data if data is not None else []
+        self.payload = None
+
+        self.payload_error = False
+        self.word_error = False
+        self.incomplete = False
+
+    def append_data(self, data):
+        self.data.append(data)
+
+    def append_tps(self, tps):
+        self.tps.append(tps)
+
+    def extend(self, results):
+        self.data.extend(results.data)
+        self.tps.extend(results.tps)
+
+        self.payload = results.payload
+        self.incomplete = results.incomplete
+        self.payload_error = results.payload_error
+        self.word_error = results.word_error
+
+class Sequence:
+    def __init__(self, packets=None):
+        self.packets = []
+        self.ts_sw   = 0
+
+        if packets is not None:
+            self.elaborate(packets)
+
+    def __iter__(self):
+        yield from self.packets
+
+    def elaborate(self, packets):
         for packet in packets:
-            packet = int(packet)
-            read += 1
-            word = [(packet >> 8*x) & 0xff for x in range(8)]
+            p = FPGAData(packet)
+            e = p.elaborate()
 
-            strh = ""
-            strb = ""
-            for i in range(8):
-                strh = strh + "%2x " % word[7-i]
-                strb = strb + format(word[7-i], '#010b') + " "
+            if e is not None:
+                self.packets.append(e)
 
-            self.logger.info("Packet: %s - %s" % (strh, strb))
+    def pop_until(self, word, payload=None):
+        tps = []
+        data = []
+        p = None
 
-            # Check packet type
-            if ((word[7]>>4) == 0xf):
-                self.ts_sw += 1
-
-                continue
-
-            elif ((word[7]>>4) == 0xa):
-                tp = TestPulse()
-                tp.ts = (word[2] << 16) | (word[1] << 8) | word[0]
-                tp.binstr = strh
-
-                if(read == 1):
-                    self.ts_base = tp.ts
-
-                tp.ts_base = self.ts_base
-                tp.ts_hz = self.ts_hz
-                tp.ts_sw = self.ts_sw
-
-                self.logger.info("Found test pulse @ %x" % tp.ts)
-                self.packets.append(tp)
-
-                last_tp = (self.ts_sw << 24) | tp.ts
-
-                continue
-
-            elif ((word[7]>>4) == 0xc):
-                c = CustomWord()
-                c.binstr = strh
-                c.word = (word[6] << 40) | (word[5] << 32) | (word[4] << 24) | (word[3] << 16) | (word[2] << 8) | word[1]
-                c.payload = word[0]
-                self.packets.append(c)
-        
-                continue
-
-            # Split into fields
-            packet = PixelData()
-            packet.bottom  = (word[0] >> 0) & 0x01
-            packet.hitmap  = (((word[1] >> 0) & 0x01) << 7) | ((word[0] >> 1) & 0x7F)
-            packet.corepr  = (word[1] >> 1) & 0x7F
-            packet.col     = (word[2] >> 0) & 0x0F
-            packet.sec     = (word[2] >> 4) & 0x0F
-            packet.ts      = word[3]
-            packet.ts_fpga = (word[6] << 16) | (word[5] << 8) | word[4]
-            packet.ts_sw   = self.ts_sw
-
-            ts_fpga_msb = (packet.ts_fpga & 0xffff00)
-            ts_fpga_lsb = (packet.ts_fpga & 0xff)
-            if (packet.ts > ts_fpga_lsb):
-                ts_fpga_msb = (ts_fpga_msb-0x100)
-
-            packet.ts_ext  = (self.ts_sw << 24) | ts_fpga_msb | packet.ts
-            packet.ser     = word[7] & 0xF
-            packet.binstr = strh
-            packet.pixels = []
-
-            for pix in range(0,7):
-                if((packet.hitmap >> pix) & 0b1):
-                    pr_row = ((pix % 4) > 1)
-                    pr_col = (pix % 2)
-
-                    p = Pixel()
-                    p.dcol   = packet.col
-                    p.sec    = packet.sec
-                    if(pix>3):
-                        p.corepr = packet.corepr
-                        p.row = 2
-                    else:
-                        p.corepr = packet.corepr +1 -packet.bottom
-                        p.row = 0
-
-                    p.row += p.corepr*4 + pr_row
-                    p.col = packet.sec*32 + packet.col*2 + pr_col
-
-                    packet.pixels.append(p)
-
-
-            if(read == 1):
-                self.ts_base = packet.ts_ext
-
-            packet.ts_base = self.ts_base
-            packet.ts_hz = self.ts_hz
-            packet.last_tp = last_tp
-            self.packets.append(packet)
-
-            # Statistics
-            self.secs[packet.sec] += 1
-            self.prs[packet.sec*16+packet.col][packet.corepr] += 1
-
-            self.tot += 1
-
-        return read
-
-    def cleanup(self):
-        self.packets.clear()
-        self.ts_base = -1
-
-    def subset(self, from_packet, to_packet):
-        s = []
-
-        iterator = iter(self.packets)
-
-        try:
-            next(p for p in iterator if type(p) == CustomWord and p.word == from_packet.word and p.payload == from_packet.payload)
-        except StopIteration:
-            self.logger.fatal('Never encountered from_packet %s!' % from_packet.to_string())
+        results = Results()
 
         while True:
             try:
-                packet = next(iterator)
-            except StopIteration:
+                p = self.packets.pop(0)
+            except IndexError:
+                results.incomplete = True
                 break
 
-            if(type(packet) == CustomWord and packet.word == to_packet.word and packet.payload == to_packet.payload):
+            if isinstance(p, CustomWord):
+                if p.word != word:
+                    results.word_error = p.word
+                else:
+                    results.payload = p.payload
+
+                if payload is not None and p.payload != payload:
+                    results.payload_error = True
+
                 break
+
+            if isinstance(p, ChipData):
+                results.append_data(p)
+            elif isinstance(p, TestPulse):
+                results.append_tps(p)
             else:
-                s.append(packet)
+                raise ValueError('Packet p is no known type: %s' % p)
 
-        return s
+        return results
 
-    def print_stats(self):
-        for i in range(16):
-            print("Section %2d has %4d data packets!" % (i, self.secs[i]))
+    def dump(self, start=0, limit=0):
+        i = 0
+        toprint = []
 
-    def dump(self, limit=0):
-        counter = 0
-        last_data = 0
-        for packet in self.packets:
-            if(limit != 0 and counter > limit):
+        ts_base = None
+        while i < limit:
+            try:
+                p = self.packets[start+i]
+            except IndexError:
                 break
 
-            print("%3d) %s" % (counter, packet.to_string()))
+            if ts_base is None:
+                ts = 0
+                ts_base = p.ts_ext
+            else:
+                ts = p.ts_ext - ts_base
 
-            counter = counter+1
+            toprint.append([i, ts, str(p)])
+            i += 1
 
-        
+        print(tabulate(toprint))

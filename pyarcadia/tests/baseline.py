@@ -4,7 +4,7 @@ import math
 import time
 
 from ..test import customplot
-from ..analysis import PixelData, CustomWord, TestPulse
+from ..analysis import ChipData, CustomWord, TestPulse
 from .scan import ScanTest
 
 class BaselineScan(ScanTest):
@@ -84,6 +84,8 @@ class FullBaselineScan(ScanTest):
     result = None
     range = None
 
+    sequence = None
+
     def pre_main(self):
         super().pre_main()
         self.sections = [x for x in range(16) if x not in self.chip.sections_to_mask]
@@ -121,8 +123,105 @@ class FullBaselineScan(ScanTest):
         super().post_main()
         invalid = [[] for _ in range(16)]
 
-        analyzed = self.readout(reset=True)
-        if(analyzed == 0):
+        th = 0
+        while th != 63:
+            # Start of test
+            results = self.elaborate_until(0xDEAFABBA)
+            th = results.payload
+
+            # Check Digital injections
+            dig_injs = self.elaborate_until(0xBEEFBEEF)
+            if dig_injs.word_error or dig_injs.incomplete:
+                break
+
+            for section in self.sections:
+                packets = list(filter(lambda x : x.sec == section, dig_injs.data))
+
+                if len(packets) < len(dig_injs.tps):
+                    invalid[section].append(th)
+
+            # Check Noise hits
+            noisy_hits = self.elaborate_until(0xCAFECAFE)
+            if noisy_hits.word_error or noisy_hits.incomplete:
+                break
+
+            for section in self.sections:
+                packets = list(filter(lambda x : x.sec == section, noisy_hits.data))
+
+                self.result[section][th] = len(packets)
+
+            # Advance bar!
+            self.ebar.update(1)
+
+        for i,l in enumerate(invalid):
+            if len(l) > 0:
+                print("Lane %d missing digital injections for threshold trials: %s" % (i, str(l)))
+
+    @customplot(('VCASN (#)', 'Section (#)'), 'Baseline distribution')
+    def plot(self, show=True, saveas=None, ax=None):
+        result_imshow = self.result
+        for i in range(64):
+            for j in range(16):
+                if(result_imshow[j][i] > 200):
+                    result_imshow[j][i] = 200
+
+        image = ax.imshow(result_imshow, vmin=0, vmax=200)
+
+        """
+        for i in range(64):
+            for j in range(16):
+                text = ax.text(i, j, self.result[j][i],
+                       ha="center", va="center", color="w")
+        """
+        return image
+
+class MatrixBaselineScan(ScanTest):
+    pixels = None
+    th = 1
+    sections = []
+    axes = ["Section (#)", "VCASN (#)"]
+    result = None
+    range = None
+
+    def pre_main(self):
+        super().pre_main()
+        self.sections = [x for x in range(16) if x not in self.chip.sections_to_mask]
+
+        self.range  = range(1, 64)
+        self.result = np.zeros((16, 64), int)
+
+    def pre_loop(self):
+        for section in self.sections:
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, 1)
+        return
+
+    def loop_body(self, iteration):
+        th = iteration
+
+        for section in self.sections:
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, th)
+        
+        self.chip.custom_word(0xDEAFABBA, iteration)
+        self.chip.read_enable(self.sections)
+        self.chip.injection_digital(self.sections)
+        self.chip.send_tp(2)
+        time.sleep(0.1)
+
+        self.chip.custom_word(0xBEEFBEEF, iteration)
+        for i in range(0,99):
+            self.chip.injection_analog(self.sections)
+            self.chip.injection_digital(self.sections)
+
+        time.sleep(0.1)
+        self.chip.read_disable(self.sections)
+        self.chip.custom_word(0xCAFECAFE, iteration)
+
+    def post_main(self, ebar=None):
+        super().post_main()
+        invalid = [[] for _ in range(16)]
+
+        readout = self.readout()
+        if readout == 0:
             return
 
         packet = None
