@@ -12,7 +12,7 @@
 # @section author_daq Author(s)
 # - Created by Andrea Paternò <andrea.paterno@to.infn.it>
 
-import os, sys, argparse, time, logging
+import os, sys, argparse, time, logging, math
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -58,7 +58,7 @@ class Fpga(FPGAIf):
     """This class is used to communicate with the FPGA
 
     :ivar chip_id: Chip identification. Default: id0
-    :ivar sections_to_mask: Sections to filter out during FPGA readout
+    :ivar lanes_masked: Sections to filter out during FPGA readout
     """
 
     def init_connection(self, xml_file=None):
@@ -83,12 +83,13 @@ class Fpga(FPGAIf):
         return Chip(chip_id, self.chips[chip_id])
 
 class Chip(object):
-    id = None
-    sections_to_mask = []
-
     def __init__(self, id, chipif):
-        self.id = id
         self.__chipif = chipif
+
+        self.id = id
+        self.lanes_masked = []
+        self.pcr = None
+        self.track_pcr = False
 
     def __getattr__(self, attr):
         return getattr(self.__chipif, attr)
@@ -105,6 +106,19 @@ class Chip(object):
         self.logger.debug("Writing GCR_PAR[%s] = 0x%x" % (gcrpar, value))
         self.__chipif.write_gcrpar(gcrpar, value)
 
+    def read_gcrpar(self, gcrpar, force_update=False):
+        """Reads a GCR
+
+        :param gcr: GCR name as in the ARCADIA Configuration file
+        :type gcr: string
+
+        :param force_update: Updates from Chip
+        :type force_update: bool
+        """
+        ret, value = self.__chipif.read_gcrpar(gcrpar, force_update)
+        return value
+
+
     def read_gcr(self, gcr, force_update=False):
         """Reads a GCR
 
@@ -114,7 +128,8 @@ class Chip(object):
         :param force_update: Updates from Chip
         :type force_update: bool
         """
-        return self.__chipif.read_gcr(gcr, force_update)
+        ret, value = self.__chipif.read_gcr(gcr, force_update)
+        return value
 
     def write_gcr(self, gcr, value):
         """Writes a GCR
@@ -139,6 +154,44 @@ class Chip(object):
         """
         self.logger.debug("Writing ICR%1d = %x" % (icr, value))
         self.__chipif.write_icr('ICR%1d' % icr, value)
+
+        if not self.track_pcr or icr != 0 or (value >> 8) & 0b1 == 0:
+            return
+
+        # Logging pixels
+        if self.pcr is None:
+            self.pcr = np.zeros((512, 512), dtype='b')
+
+        secs     = self.read_gcrpar('HELPER_SECCFG_SECTIONS')
+        cols     = self.read_gcrpar('HELPER_SECCFG_COLUMNS')
+        prstart  = self.read_gcrpar('HELPER_SECCFG_PRSTART')
+        prstop   = self.read_gcrpar('HELPER_SECCFG_PRSTOP')
+        prskip   = self.read_gcrpar('HELPER_SECCFG_PRSKIP')
+        pixsel   = self.read_gcrpar('HELPER_SECCFG_PIXELSELECT')
+        cfgval   = self.read_gcrpar('HELPER_SECCFG_CFGDATA')
+
+        for pr in range(prstart, prstop+1, prskip+1):
+            pix_row_base = pr*4 + ((pixsel >> 4) & 0b1)*2
+            for pix in range(0,4):
+                if ((pixsel >> pix) & 0b1) == 0:
+                    continue
+
+                pix_row = pix_row_base + math.floor(pix/2)
+                pix_col_base = (pix % 2)
+
+                for sec in range(0,16):
+                    if (secs >> sec) & 0b1 == 0:
+                        continue
+
+                    for col in range(0,16):
+                        if (cols >> col) & 0b1 == 0:
+                            continue
+
+                        pix_col = pix_col_base + sec*32 + col*2
+
+                        self.pcr[pix_row][pix_col] = cfgval
+
+
 
     def send_controller_command(self, cmd, value=0):
         """Send a command to the FPGA Controller
@@ -192,7 +245,7 @@ class Chip(object):
         :return: Data packets in the FPGA FIFO
         :rtype: int
         """
-        sections = onehot(sections) & onecold(self.sections_to_mask)
+        sections = onehot(sections) & onecold(self.lanes_masked)
         self.send_controller_command('setTxDataEnable', sections)
 
     def custom_word(self, word, payload=0):
@@ -208,7 +261,9 @@ class Chip(object):
 
     def calibrate_deserializers(self):
         self.sync_mode()
+        time.sleep(0.01)
         response = self.__chipif.calibrate_deserializers()
+        time.sleep(0.01)
         self.normal_mode()
 
         lanes = []
@@ -309,6 +364,9 @@ class Chip(object):
     def write_pcr(self):
         self.write_icr(0, onehot([8]))
 
+    def pixel_cfg(self, cfg, p):
+        self.pixels_cfg(cfg, [p.get_sec()], [p.get_dcol()], [p.get_corepr()], [p.get_master()], [p.get_idx()])
+
     def pixels_cfg(self, cfg, sections = 0xffff, columns = 0xffff, prs=None, master=None, pixels = 0xf):
         self.write_gcrpar('HELPER_SECCFG_SECTIONS', onehot(sections))
         self.write_gcrpar('HELPER_SECCFG_COLUMNS',  onehot(columns))
@@ -339,18 +397,28 @@ class Chip(object):
 
             master = [master] if not isinstance(master, list) else master
             for subpr in master:
+                #self.logger.info("Configuring [%x][%x][%d]->[%d] %s[%s] w/ %x" % (onehot(sections), onehot(columns), range_start, range_stop, str(master), format(onehot(pixels), '#06b')[2:], cfg))
                 pselect = (subpr << 4) | (onehot(pixels) & 0xf)
                 self.write_gcrpar('HELPER_SECCFG_PIXELSELECT', pselect)
                 self.write_pcr()
+                time.sleep(0.001)
 
     def pixels_mask(self, sections = 0xffff, columns = 0xffff, prs=None, master=None, pixels = 0xf):
         self.pixels_cfg(0b11, sections, columns, prs, master, pixels)
 
     # Injection
     def send_tp(self, pulses=1, t_on=1000, t_off=1000):
+        if t_on > (1<<20):
+            raise ValueError("TP On Time (%d) exceeds maximum value of %d." % (t_on, (1<<20)))
+
+        if t_off > (1<<20):
+            raise ValueError("TP Off Time (%d) exceeds maximum value of %d." % (t_off, (1<<20)))
+
         t_on = t_on-2 if (t_on > 2) else t_on
         t_off = t_off-1 if (t_off > 1) else t_off
         self.__chipif.send_pulse(int(t_on), int(t_off), pulses)
+
+        return pulses*(t_on+t_off+2+1)*31.25E-9
 
     # FPGA commands
     def sync(self, lanes=0xffff):

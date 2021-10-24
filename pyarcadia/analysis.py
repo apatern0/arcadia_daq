@@ -1,15 +1,79 @@
+import os
 import numpy as np
-from tabulate import tabulate
 import time
+import math
+import functools
+import matplotlib
+from tabulate import tabulate
+plt = matplotlib.pyplot
+
+def customplot(axes, title):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            if 'show' in kwargs:
+                show = kwargs['show']
+            elif len(args) > 1:
+                show = args[1]
+            else:
+                show = False
+
+            if 'saveas' in kwargs:
+                saveas = kwargs['saveas']
+            elif len(args) > 2:
+                saveas = args[2]
+            else:
+                saveas = None
+
+            if(show == False and saveas == None):
+                raise ValueError('Either show or save the plot!')
+
+            fig, ax = plt.subplots()
+
+            image = f(*args, **kwargs, ax=ax)
+
+            ax.set(xlabel=axes[0], ylabel=axes[1], title=title)
+            ax.margins(0)
+
+            if isinstance(image, matplotlib.lines.Line2D) and ax.get_label() is not '':
+                ax.legend()
+                ax.grid()
+            elif isinstance(image, matplotlib.image.AxesImage):
+                plt.colorbar(image, orientation='horizontal')
+
+            if(saveas != None):
+                fn = saveas+".pdf"
+                if os.path.exists(fn):
+                    i = 1
+                    while True:
+                        fn = saveas + ("_%d" % i) + ".pdf"
+                        if not os.path.exists(fn):
+                            break
+
+                        i += 1
+
+                fig.savefig(fn, bbox_inches='tight')
+
+            if(show == True):
+                matplotlib.interactive(True)
+                plt.show()
+            else:
+                matplotlib.interactive(False)
+                plt.close(fig)
+
+        return wrapper
+    return decorator
+
 
 class Data:
     word = 0
-    bits = 63
+    bits = 64
 
     bytes = []
 
-    def __init__(self, word):
-        self.word = int(word)
+    def __init__(self, word=None):
+        if word is not None:
+            self.word = int(word)
 
     def __index__(self):
         return self.word
@@ -25,15 +89,16 @@ class Data:
 
     def to_hex(self):
         string = ""
-        word = self.word
-        for i in range(0, self.bits, 8):
-            word = word >> i*8
-            string += format((word & 0xff), '2x')
+        wb = self.to_bytes()
+
+        for i in wb:
+            string = "{0:#0{1}x} ".format(i,4)[2:] + string
 
         return string
 
     def to_bytes(self):
         return [(self.word >> 8*x) & 0xff for x in range(8)]
+
 
 class Pixel:
     row    = 0
@@ -44,16 +109,42 @@ class Pixel:
         self.col = col
 
     def get_sec(self):
-        return self.col / 32
+        return Pixel.sec_from_col(self.col)
 
     def get_dcol(self):
-        return (self.col % 32) / 16
+        return Pixel.dcol_from_col(self.col)
 
     def get_corepr(self):
-        return self.row / 4
+        return Pixel.corepr_from_row(self.row)
+
+    def get_master(self):
+        return Pixel.master_from_row(self.row)
+
+    def get_idx(self):
+        return Pixel.idx_from_pos(self.row, self.col)
 
     def __str__(self):
         return "Pixel @ [%3d][%3d] SEC %d DCOL %d COREPR %d" % (self.row, self.col, self.get_sec(), self.get_dcol(), self.get_corepr())
+
+    @staticmethod
+    def sec_from_col(col):
+        return col >> 5
+
+    @staticmethod
+    def dcol_from_col(col):
+        return (col >> 1) & 0xf
+
+    @staticmethod
+    def corepr_from_row(row):
+        return row >> 2
+
+    @staticmethod
+    def master_from_row(row):
+        return (row >> 1) & 0x1
+
+    @staticmethod
+    def idx_from_pos(row, col):
+        return (row & 0x1)*2 + (col & 0x1)
 
 class ChipData(Data):
     bottom  = 0
@@ -70,23 +161,44 @@ class ChipData(Data):
 
     pixels = []
 
-    def __init__(self, word, sequence):
+    def __init__(self, word=None, sequence=None):
         super().__init__(word)
-        wb = self.to_bytes()
 
-        self.bottom  = (wb[0] >> 0) & 0x01
-        self.hitmap  = (((wb[1] >> 0) & 0x01) << 7) | ((wb[0] >> 1) & 0x7F)
-        self.corepr  = (wb[1] >> 1) & 0x7F
-        self.col     = (wb[2] >> 0) & 0x0F
-        self.sec     = (wb[2] >> 4) & 0x0F
-        self.ts      = wb[3]
-        self.ts_fpga = (wb[6] << 16) | (wb[5] << 8) | wb[4]
-        self.ser     = wb[7] & 0xF
+        if sequence is not None:
+            self.ts_sw  = sequence.ts
 
-        self.ts_sw   = 0
-        self.pixels = []
+        if word is not None:
+            wb = self.to_bytes()
 
-        for pix in range(0,7):
+            self.bottom  = (wb[0] >> 0) & 0x01
+            self.hitmap  = (((wb[1] >> 0) & 0x01) << 7) | ((wb[0] >> 1) & 0x7F)
+            self.corepr  = (wb[1] >> 1) & 0x7F
+            self.col     = (wb[2] >> 0) & 0x0F
+            self.sec     = (wb[2] >> 4) & 0x0F
+            self.ts      = wb[3]
+            self.ts_fpga = (wb[6] << 16) | (wb[5] << 8) | wb[4]
+            self.ser     = wb[7] & 0xF
+
+            self.ts_sw   = 0
+            self.pixels = []
+
+        self.extend_timestamp()
+
+    def master_idx(self):
+        return (self.sec*16+self.col)*128+self.corepr
+
+    def extend_timestamp(self):
+        ts_fpga_msb = (self.ts_fpga & 0xffff00)
+        ts_fpga_lsb = (self.ts_fpga & 0xff)
+        if (self.ts > ts_fpga_lsb):
+            ts_fpga_msb = (ts_fpga_msb-0x100)
+
+        self.ts_ext  = (self.ts_sw << 24) | ts_fpga_msb | self.ts
+
+    def get_pixels(self):
+        pixels = []
+
+        for pix in range(0,8):
             if (self.hitmap >> pix) & 0b1 == 0:
                 continue
 
@@ -103,21 +215,26 @@ class ChipData(Data):
             row += corepr*4 + pr_row
             col = self.sec*32 + self.col*2 + pr_col
 
+            if row >511 or col > 511:
+                raise IndexError('oob %s' % str(self))
+
             p = Pixel(row, col)
-            self.pixels.append(p)
+            pixels.append(p)
 
-        if sequence is not None:
-            self.ts_sw  = sequence.ts
+        return pixels
 
-        self.extend_timestamp()
+    def get_prs(self):
+        prs = {}
 
-    def extend_timestamp(self):
-        ts_fpga_msb = (self.ts_fpga & 0xffff00)
-        ts_fpga_lsb = (self.ts_fpga & 0xff)
-        if (self.ts > ts_fpga_lsb):
-            ts_fpga_msb = (ts_fpga_msb-0x100)
+        master_hitmap = (self.hitmap >> 4)
+        if master_hitmap != 0:
+            prs[self.corepr] = master_hitmap
 
-        self.ts_ext  = (self.ts_sw << 24) | ts_fpga_msb | self.ts
+        slave_hitmap = (self.hitmap & 0xf)
+        if slave_hitmap != 0:
+            prs[self.corepr + 1 - self.bottom] = slave_hitmap
+
+        return prs
 
     def __str__(self):
         return "%s - SER[%2d] @ [%2d][%3d][%2x] = %s (%1d)" % (self.to_hex(), self.ser, self.sec, self.col, self.corepr, format(self.hitmap, '#010b'), self.bottom)
@@ -142,11 +259,11 @@ class CustomWord(Data):
         super().__init__(word)
 
         wb = self.to_bytes()
-        self.word = (wb[6] << 40) | (wb[5] << 32) | (wb[4] << 24) | (wb[3] << 16) | (wb[2] << 8) | wb[1]
+        self.message = (wb[6] << 40) | (wb[5] << 32) | (wb[4] << 24) | (wb[3] << 16) | (wb[2] << 8) | wb[1]
         self.payload = wb[0]
 
     def __str__(self):
-        return "%s -    WORD : 0x%x - PAYLOAD : 0x%x" % (self.to_hex(), self.word, self.payload)
+        return "%s -     MSG : 0x%x - PAYLOAD : 0x%x" % (self.to_hex(), self.message, self.payload)
 
 class FPGAData(Data):
     def elaborate(self, sequence=None):
@@ -183,7 +300,7 @@ class Results:
         self.payload = None
 
         self.payload_error = False
-        self.word_error = False
+        self.message_error = False
         self.incomplete = False
 
     def append_data(self, data):
@@ -199,7 +316,56 @@ class Results:
         self.payload = results.payload
         self.incomplete = results.incomplete
         self.payload_error = results.payload_error
-        self.word_error = results.word_error
+        self.message_error = results.message_error
+
+    def merge_data(self, check=False):
+        self.data.sort(key=lambda x: x.master_idx(), reverse=True)
+
+        new_data = []
+        smart_readouts = 0
+
+        tmp = None
+        old_idx = None
+        while True:
+            try:
+                tmp = self.data.pop(0)
+            except IndexError:
+                return []
+
+            old_idx = tmp.master_idx()
+
+            if tmp.bottom != 0 or (tmp.hitmap & 0xf) == 0:
+                break
+
+            smart_readouts += 1
+            if check is True:
+                raise ValueError("Data merging doesn't support Smart Readout... yet")
+
+        for d in self.data:
+            if d.bottom == 0 and (tmp.hitmap & 0xf) != 0:
+                if check is True:
+                    raise ValueError("Data merging doesn't support Smart Readout... yet")
+
+                smart_readouts += 1
+                continue
+
+            this_idx = d.master_idx()
+
+            if this_idx != old_idx:
+                tmp.bottom = 1
+                new_data.append(tmp)
+                tmp = d
+            else:
+                tmp.hitmap |= d.hitmap
+
+            old_idx = this_idx
+
+        # Account for any last loner
+        new_data.append(tmp)
+
+        self.data = new_data
+
+        return smart_readouts
 
 class Sequence:
     def __init__(self, packets=None):
@@ -220,7 +386,7 @@ class Sequence:
             if e is not None:
                 self.packets.append(e)
 
-    def pop_until(self, word, payload=None):
+    def pop_until(self, message, payload=None):
         tps = []
         data = []
         p = None
@@ -235,10 +401,10 @@ class Sequence:
                 break
 
             if isinstance(p, CustomWord):
-                if p.word != word:
-                    results.word_error = p.word
+                if p.message != message:
+                    results.message_error = p.message
                 else:
-                    results.payload = p.payload
+                    results.payload = p.payload & 0xff
 
                 if payload is not None and p.payload != payload:
                     results.payload_error = True
@@ -254,12 +420,80 @@ class Sequence:
 
         return results
 
+    def analyze(self, pixels_cfg, printout=True, plot=False):
+        tps = 0
+        hitcount = 0
+
+        hits = np.full((512, 512), np.nan)
+
+        # Add received hits, keep track of tps
+        for p in self.packets:
+            if isinstance(p, TestPulse):
+                tps += 1
+                continue
+
+            if not isinstance(p, ChipData):
+                continue
+
+            # Is ChipData
+            pixels = p.get_pixels()
+            for pix in pixels:
+                if np.isnan(hits[pix.row][pix.col]):
+                    hits[pix.row][pix.col] = 1
+                else:
+                    hits[pix.row][pix.col] += 1
+
+                hitcount += 1
+
+        # Now subtract from what's expected
+        injectable = np.argwhere(pixels_cfg == 0b01)
+        for (row, col) in injectable:
+            if np.isnan(hits[row][col]):
+                hits[row][col] = -1
+            else:
+                hits[row][col] -= tps
+
+        # Report differences
+        unexpected = np.argwhere(np.logical_and(~np.isnan(hits), hits != 0))
+
+        toprint = []
+        for (row, col) in unexpected:
+            h = str(abs(hits[row][col])) + " (" + ("excess" if hits[row][col] > 0 else "missing") + ")"
+
+            sec = Pixel.sec_from_col(col)
+            dcol = Pixel.dcol_from_col(col)
+            corepr = Pixel.corepr_from_row(row)
+            master = Pixel.master_from_row(row)
+            idx = Pixel.idx_from_pos(row, col)
+            cfg = format(pixels_cfg[row][col], '#04b')
+
+            toprint.append([sec, dcol, corepr, master, idx, row, col, h, cfg])
+
+        if printout:
+            print("Injectables: %d x %d TPs = %d -> Received: %d" % (len(injectable), tps, len(injectable)*tps, hitcount))
+            print(tabulate(toprint, headers=["Sec", "DCol", "CorePr", "Master", "Idx", "Row", "Col", "Unexpected Balance", "Pixel Cfg"]))
+
+        if plot:
+            @customplot(('Row (#)', 'Col (#)'), 'Baseline distribution')
+            def aplot(matrix, show=True, saveas=None, ax=None):
+                cmap = matplotlib.cm.jet
+                cmap.set_bad('gray',1.)
+                image = ax.imshow(matrix, interpolation='none', cmap=cmap)
+
+                for i in range(1,16):
+                    plt.axvline(x=i*32-0.5,color='black')
+                return image
+
+            aplot(hits, show=True)
+
+        return toprint
+
     def dump(self, start=0, limit=0):
         i = 0
         toprint = []
 
         ts_base = None
-        while i < limit:
+        while limit == 0 or i < limit:
             try:
                 p = self.packets[start+i]
             except IndexError:
@@ -274,4 +508,4 @@ class Sequence:
             toprint.append([i, ts, str(p)])
             i += 1
 
-        print(tabulate(toprint))
+        print(tabulate(toprint, headers=["#", "Timestamp", "Packet dump"]))

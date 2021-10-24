@@ -1,9 +1,10 @@
 import time, logging, math
 import matplotlib
 import threading
-import functools
 import subprocess, signal
 import configparser
+import os
+import traceback
 from tqdm import tqdm
 
 from . import bcolors
@@ -11,52 +12,6 @@ from .daq import *
 from .analysis import *
 
 plt = matplotlib.pyplot
-
-def customplot(axes, title):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args, **kwargs):
-            if 'show' in kwargs:
-                show = kwargs['show']
-            elif len(args) > 1:
-                show = args[1]
-            else:
-                show = False
-
-            if 'saveas' in kwargs:
-                saveas = kwargs['saveas']
-            elif len(args) > 2:
-                saveas = args[2]
-            else:
-                saveas = None
-
-            if(show == False and saveas == None):
-                raise ValueError('Either show or save the plot!')
-        
-            fig, ax = plt.subplots()
-
-            image = f(*args, **kwargs, ax=ax)
-
-            ax.set(xlabel=axes[0], ylabel=axes[1], title=title)
-
-            if isinstance(image, matplotlib.lines.Line2D) and ax.get_label() is not '':
-                ax.legend()
-                ax.grid()
-            elif isinstance(image, matplotlib.image.AxesImage):
-                plt.colorbar(image, orientation='horizontal')
-
-            if(saveas != None):
-                fig.savefig(f"{saveas}.pdf", bbox_inches='tight')
-
-            if(show == True):
-                matplotlib.interactive(True)
-                plt.show()
-            else:
-                matplotlib.interactive(False)
-                plt.close(fig)
-
-        return wrapper
-    return decorator
 
 class ChipListen:
     chip = None
@@ -102,11 +57,11 @@ class Test:
         # Initialize Chip
         self.fpga.init_connection()
         self.chip.logger = self.logger
-        if 'sections_to_mask' in self.chip.cfg:
-            stm = self.chip.cfg['sections_to_mask'].split(",")
+        if 'lanes_masked' in self.chip.cfg:
+            stm = self.chip.cfg['lanes_masked'].split(",")
             print("Masking sections: %s" % str(stm))
             stm = [int(x) for x in stm]
-            self.chip.sections_to_mask = stm
+            self.chip.lanes_masked = stm
 
         # Initialize Logger
         ch = logging.StreamHandler()
@@ -118,6 +73,8 @@ class Test:
         # Add Listener
         self.reader = ChipListen(self.chip)
 
+        self.result = None
+        self.lanes_excluded = []
 
     def load_cfg(self):
         if not os.path.isfile("./chip.ini"):
@@ -184,8 +141,8 @@ class Test:
 
         return synced
         
-    def check_stability(self):
-        for i in range(8):
+    def check_stability(self, trials=8):
+        for i in range(trials):
             self.chip.packets_reset()
             self.chip.packets_reset()
             packets_in_fifo = self.chip.packets_count()
@@ -197,17 +154,17 @@ class Test:
 
         return False
 
-    def stabilize_lanes(self):
+    def stabilize_lanes(self, sync=None, iterations=5):
         if self.reader.active:
             self.reader.stop()
 
-        to_mask = []
+        lanes_noisy = []
         iteration = 0
-        while iteration < 5:
+        while iteration < iterations:
             print(f"Synchronization iteration {iteration}...")
             silence = False
             while iteration < 5:
-                self.chip.enable_readout(onecold(to_mask, 0xffff))
+                self.chip.enable_readout(onecold(lanes_noisy, 0xffff))
                 self.chip.packets_reset()
                 self.chip.packets_reset()
 
@@ -216,32 +173,37 @@ class Test:
                     break
 
                 # Get a sample of the noisy data
-                readout = self.readout(30)
-                if readout == 0:
+                try:
+                    readout = self.readout(30)
+                except StopIteration:
                     silence = True
                     break
 
                 # Distinguish between noisy and unsync
-                noisy_lanes = []
-                unsync_lanes = []
+                this_lanes_noisy = []
+                this_lanes_unsync = []
                 read = 0
                 elaborated = Sequence(readout)
                 for pkt in elaborated:
                     if isinstance(pkt, ChipData):
                         read += 1
-                        if pkt.ser == pkt.sec and pkt.ser not in noisy_lanes:
-                            noisy_lanes.append(pkt.ser)
-                        elif pkt.ser not in unsync_lanes:
-                            unsync_lanes.append(pkt.ser)
+                        if pkt.ser == pkt.sec and pkt.ser not in this_lanes_noisy:
+                            this_lanes_noisy.append(pkt.ser)
+                        elif pkt.ser not in this_lanes_unsync:
+                            this_lanes_unsync.append(pkt.ser)
 
                 if read == 0:
                     silence = True
                     break
 
-                print("\tNoisy lanes: %s\n\tUnsync lanes: %s" % (str(noisy_lanes), str(unsync_lanes)))
+                print("\tNoisy lanes: %s\n\tUnsync lanes: %s" % (str(this_lanes_noisy), str(this_lanes_unsync)))
 
-                self.resync(0xffff) ;#self.resync(unsync_lanes)
-                to_mask.extend(noisy_lanes)
+                if sync == 'sync':
+                    self.resync(0xffff)
+                else:
+                    self.chip.calibrate_deserializers()
+
+                lanes_noisy.extend(this_lanes_noisy)
 
                 iteration += 1
 
@@ -265,28 +227,33 @@ class Test:
 
             # Send a TP, expect a packet per stable lane
             self.chip.send_tp(1)
-            readout = self.readout(40)
+            try:
+                readout = self.readout(40)
+            except StopIteration:
+                readout = []
 
-            lanes_check = []
+            lanes_ok = []
             lanes_invalid = []
             elaborated = Sequence(readout)
             for packet in elaborated:
-                if isinstance(packet, ChipData):
-                    if packet.ser != packet.sec or packet.col != 0 or packet.corepr != 0:
-                        if packet.ser not in lanes_invalid:
-                            lanes_invalid.append(packet.ser)
-                            continue
+                if not isinstance(packet, ChipData):
+                    continue
 
-                    if packet.ser not in lanes_check and packet.ser not in lanes_invalid:
-                        lanes_check.append(packet.ser)
+                if packet.ser != packet.sec or packet.col != 0 or packet.corepr != 0:
+                    if packet.ser not in lanes_invalid:
+                        lanes_invalid.append(packet.ser)
+                        continue
 
-            exclude = self.chip.sections_to_mask + lanes_check + to_mask
-            missing = [x for x in range(16) if x not in exclude]
+                if packet.ser not in lanes_ok and packet.ser not in lanes_invalid:
+                    lanes_ok.append(packet.ser)
+
+            exclude = self.chip.lanes_masked + lanes_ok + lanes_noisy
+            lanes_dead = [x for x in range(16) if x not in exclude]
 
             ready = True
-            if len(missing) != 0:
+            if len(lanes_dead) != 0:
                 ready = False
-                print(f"\tIteration {iteration}. Missing data from lanes: " + str(missing))
+                print(f"\tIteration {iteration}. Missing data from lanes: " + str(lanes_dead))
 
             if len(lanes_invalid) != 0:
                 ready = False
@@ -296,12 +263,20 @@ class Test:
                 print("\t... but not deaf!")
                 break
 
+            if sync == 'sync':
+                self.resync(0xffff)
+            else:
+                self.chip.calibrate_deserializers()
+
             iteration += 1
 
+        if len(lanes_dead) != 0:
+            print('Tests will proceed with the following dead lanes: %s' % lanes_dead)
 
-        if not ready:
-            print()
+        if len(lanes_invalid) != 0:
             raise RuntimeError('Unable to stabilize the lanes!')
+
+        self.lanes_excluded = self.chip.lanes_masked + lanes_dead
 
     def timestamp_sync(self):
         self.chip.set_timestamp_delta(0)
@@ -313,8 +288,12 @@ class Test:
 
         self.chip.packets_reset()
         self.chip.send_tp(1)
-        time.sleep(0.5)
-        readout = self.readout(30)
+        time.sleep(0.1)
+        try:
+            readout = self.readout(30)
+        except StopIteration:
+            return False
+
         elaborated = Sequence(readout)
 
         tp = filter(lambda x:(type(x) == TestPulse), elaborated)
@@ -355,17 +334,17 @@ class Test:
 
         self.chip.set_timestamp_delta(ts_delta)
 
-    def initialize(self, auto_read=True):
+    def initialize(self, sync=None, auto_read=True):
         for i in range(4):
             ok = True
 
             # Initialize chip
-            lanes = self.chip_init()
-            to_mask = [item for item in list(range(16)) if item not in lanes and item not in self.chip.sections_to_mask]
-            self.chip.sections_to_mask.extend(to_mask)
+            lanes_synced = self.chip_init()
+            #to_mask = [item for item in list(range(16)) if item not in (lanes_synced + self.chip.lanes_masked)]
+            to_mask = [item for item in list(range(16)) if item not in self.chip.lanes_masked]
 
             # Check and stabilize the lanes
-            self.stabilize_lanes()
+            self.stabilize_lanes(sync=sync, iterations=2)
 
             try:
                 self.timestamp_sync()
@@ -391,13 +370,13 @@ class Test:
 
         return synced
 
-    def readout(self, max_packets=None, fail_on_error=True, reset=True):
-        for _ in range(5):
+    def readout(self, max_packets=None, fail_on_error=True, timeout=5):
+        for _ in range(timeout):
             in_fifo = self.chip.packets_count()
             if in_fifo != 0:
                 break
 
-            time.sleep(1)
+            time.sleep(0.1)
 
         if in_fifo == 0:
             raise StopIteration()
@@ -414,18 +393,35 @@ class Test:
 
         return readout
 
-    def elaborate_until(self, word, payload=None):
+    def readout_until(self, max_packets=None, timeout=2):
+        r = []
+        saved = 0
+        while True:
+            print("Read!")
+            to_read = (max_packets-saved) if max_packets is not None else None
+            try:
+                tmp = self.readout(to_read, timeout=timeout)
+            except StopIteration:
+                break
+
+            saved += len(tmp)
+            r.extend(tmp)
+
+        print("Readut %d packets", len(r))
+        return r
+
+    def elaborate_until(self, word, payload=None, timeout=5, tries=20):
         results = Results()
 
-        for _ in range(20):
-            results.extend(self.sequence.pop_until(word))
+        for _ in range(tries):
+            results.extend(self.sequence.pop_until(word, payload))
 
             if not results.incomplete:
                 return results
 
             # Incomplete readout, try to read some more.
             try:
-                r = self.readout()
+                r = self.readout(timeout=timeout)
             except StopIteration:
                 return results
 
@@ -433,3 +429,16 @@ class Test:
             self.sequence = Sequence(r)
 
         return results
+
+    def save(self, saveas):
+        fn = saveas+".npy"
+        if os.path.exists(fn):
+            i = 1
+            while True:
+                fn = saveas + ("_%d" % i) + ".npy"
+                if not os.path.exists(fn):
+                    break
+
+                i += 1
+
+        np.save(fn, self.result)

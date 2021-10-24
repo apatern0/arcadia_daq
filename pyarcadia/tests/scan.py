@@ -23,7 +23,6 @@ class ParallelAnalysis(threading.Thread):
 
 class ScanTest(Test):
     range = []
-    result = []
     axes = ["time (s)", "voltage (mV)"]
     title = "Scan Test"
 
