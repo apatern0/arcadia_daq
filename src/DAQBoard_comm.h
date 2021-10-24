@@ -177,13 +177,11 @@ inline uint32_t calc_cmd_max_addr(){
 class FPGAIf;
 
 class ChipIf {
-
 private:
 	std::uint8_t chip_id;
 
 	FPGAIf* fpga;
 
-	std::thread dataread_thread;
 	std::atomic_bool run_flag;
 
 	bool daq_timeout;
@@ -203,11 +201,13 @@ private:
 	void fifo_read_start();
 	void fifo_read_loop();
 	void fifo_read_stop();
-	void fifo_read_wait();
 	uint32_t fifo_count();
 
 public:
 	ChipIf(uint8_t id, FPGAIf *fpga_ptr);
+
+	std::thread dataread_thread;
+
 	size_t max_packets;
 	size_t stop_after;
 	uint32_t timeout;
@@ -237,7 +237,6 @@ public:
 	void packets_reset();
 	void packets_read_start();
 	void packets_read_stop();
-	void packets_read_wait();
 	bool packets_read_active();
 	uint32_t packets_count();
 	std::vector<uint64_t>* packets_read(size_t packets);
@@ -253,6 +252,7 @@ private:
 
 public:
 	FPGAIf(std::string connection_xml_path, std::string device_id, bool verbose=false);
+	~FPGAIf();
 
 	uhal::HwInterface lHW;
 

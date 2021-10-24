@@ -173,6 +173,11 @@ class Chip(object):
         """
         return self.__chipif.packets_read(packets)
 
+    def packets_read_stop(self):
+        """Waits for the data readout to stop
+        """
+        return self.__chipif.packets_read_stop()
+
     def readout(self):
         """Fetch readout packets
 

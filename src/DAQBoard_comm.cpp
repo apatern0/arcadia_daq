@@ -29,7 +29,7 @@ ChipIf::ChipIf(uint8_t id, FPGAIf* fpga_ptr) {
 	chip_id = id;
 	fpga = fpga_ptr;
 
-	max_packets = 2048/64*1024*1024;
+	max_packets = 25E6;
 	run_flag = false;
 	daq_timeout = false;
 	spi_unavailable = false;
@@ -329,7 +329,7 @@ size_t ChipIf::fifo_read(size_t num_packets) {
 	if (packets_write->size() > max_packets) {
 		std::cerr << "Currently reached maximum packets. Unable to read " << std::dec << packets_fifo << " packets from FPGA." << std::endl;
 		Node_fifo_data.readBlock(packets_fifo*2);
-		sleep(1);
+		sleep(0.1);
 		return -1;
 	}
 
@@ -346,6 +346,9 @@ size_t ChipIf::fifo_read(size_t num_packets) {
 	fpga->lHW.dispatch();
 
 	uint32_t bytes_read = data.size();
+
+	if(packets_to_read == 0)
+		return 0;
 
 	if (bytes_read < bytes_to_read){
 		std::cerr << "Read " << bytes_read << " from FIFO, instead of the requested " << bytes_to_read << std::endl;
@@ -404,7 +407,10 @@ void ChipIf::fifo_read_loop() {
 
 
 void ChipIf::fifo_read_start() {
-	packets_write->reserve(100*1024*1024/64);
+	if (run_flag == true)
+		return;
+
+	packets_write->reserve(12.5E6);
 
 	packets_reset();
 
@@ -413,14 +419,12 @@ void ChipIf::fifo_read_start() {
 }
 
 void ChipIf::fifo_read_stop() {
+	if (run_flag == false)
+		return;
+
 	run_flag = false;
-}
-
-
-void ChipIf::fifo_read_wait() {
 	dataread_thread.join();
 }
-
 
 uint32_t ChipIf::fifo_count() {
 	const uhal::Node& Node_fifo_data = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".data");
@@ -573,10 +577,6 @@ void ChipIf::packets_read_start() {
 	fifo_read_start();
 }
 
-void ChipIf::packets_read_wait() {
-	fifo_read_wait();
-}
-
 void ChipIf::packets_read_stop() {
 	fifo_read_stop();
 }
@@ -595,7 +595,6 @@ uint32_t ChipIf::packets_count() {
 std::vector<uint64_t>* ChipIf::packets_read(size_t packets = 0) {
 	if(run_flag) {
 		fifo_read_stop();
-		fifo_read_wait();
 
 		auto data = packets_write;
 		packets_write = (packets_write == &packetsA) ? &packetsB : &packetsA;
@@ -732,5 +731,12 @@ void FPGAIf::dump_DAQBoard_reg() {
 
 		std::cout << reg << ": 0x" << std::hex << reg_data.value() << std::endl;
 	}
+}
+
+FPGAIf::~FPGAIf() {
+	for (uint8_t id: {0, 1, 2}) {
+		ChipIf* chip = chips[id];
+		chip->packets_read_stop();
+   	}
 }
 

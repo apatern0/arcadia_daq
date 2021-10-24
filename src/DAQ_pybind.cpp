@@ -111,7 +111,6 @@ PYBIND11_MODULE(arcadia_daq, m) {
 			})
 
 		.def("packets_read_stop", &ChipIf::packets_read_stop)
-		.def("packets_read_wait", &ChipIf::packets_read_wait)
 		.def("packets_read_active", &ChipIf::packets_read_active)
 		.def("packets_read", [](ChipIf &chip, size_t num_packets=0) {
 			// Expose raw memory as NUMPY array

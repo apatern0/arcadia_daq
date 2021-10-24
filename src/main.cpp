@@ -221,7 +221,7 @@ int main(int argc, char** argv){
 		}
 
 		for(auto chipid: chipid_list)
-			fpga.chips[chipid]->packets_read_wait();
+			fpga.chips[chipid]->dataread_thread.join();
 
 		if (daq_mode != 0)
 			fpga.write_register("regfile.mode", 0x0);

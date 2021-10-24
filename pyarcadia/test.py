@@ -68,19 +68,17 @@ class ChipListen:
     def __enter__(self):
         self.start()
 
-    def __del__(self):
-        self.stop()
-
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        self.stop()
-
     def start(self):
         self.active = True
         self.chip.packets_read_start()
 
-    def stop(self):
-        self.active = False
+    def _stop(self):
         self.chip.packets_read_stop()
+
+    def stop(self):
+        self._stop()
+        self.active = False
+
 
 class Test:
     logger = None
@@ -120,9 +118,6 @@ class Test:
         # Add Listener
         self.reader = ChipListen(self.chip)
 
-    def __del__(self):
-        if self.reader is not None:
-            self.reader.stop()
 
     def load_cfg(self):
         if not os.path.isfile("./chip.ini"):
