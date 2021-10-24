@@ -1,11 +1,8 @@
-CXX = g++
-PYTHON = python3
+CXX := g++
+PYTHON := python3
 
-SRC = ../../src
-OPT = 3
-ifdef $(DEBUG)
-OPT = 0
-endif
+SRC := ../../src
+OPT ?= 3
 
 CXXFLAGS = -g -std=c++11 -Wall -Wextra -O$(OPT)
 LIBS = -I/opt/cactus/include -I. -L/opt/cactus/lib -lcactus_uhal_uhal -lcactus_uhal_grammars -lcactus_uhal_log -lpthread -lboost_system
