@@ -4,8 +4,8 @@ import time
 import math
 import functools
 import matplotlib
+import matplotlib.pyplot as plt
 from tabulate import tabulate
-plt = matplotlib.pyplot
 
 def customplot(axes, title):
     def decorator(f):
@@ -35,7 +35,10 @@ def customplot(axes, title):
             ax.set(xlabel=axes[0], ylabel=axes[1], title=title)
             ax.margins(0)
 
-            if isinstance(image, matplotlib.lines.Line2D) and ax.get_label() is not '':
+            if isinstance(image, list):
+                image = image.pop(0)
+
+            if isinstance(image, matplotlib.lines.Line2D):
                 ax.legend()
                 ax.grid()
             elif isinstance(image, matplotlib.image.AxesImage):

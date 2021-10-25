@@ -370,7 +370,7 @@ class Test:
 
         return synced
 
-    def readout(self, max_packets=None, fail_on_error=True, timeout=5):
+    def readout(self, max_packets=None, fail_on_error=True, timeout=50):
         for _ in range(timeout):
             in_fifo = self.chip.packets_count()
             if in_fifo != 0:
@@ -393,7 +393,7 @@ class Test:
 
         return readout
 
-    def readout_until(self, max_packets=None, timeout=2):
+    def readout_until(self, max_packets=None, timeout=50):
         r = []
         saved = 0
         while True:
@@ -410,7 +410,7 @@ class Test:
         print("Readut %d packets", len(r))
         return r
 
-    def elaborate_until(self, word, payload=None, timeout=5, tries=20):
+    def elaborate_until(self, word, payload=None, timeout=50, tries=50):
         results = Results()
 
         for _ in range(tries):

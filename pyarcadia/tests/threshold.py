@@ -3,8 +3,7 @@ import numpy as np
 import math
 import time
 
-from ..test import customplot
-from ..analysis import PixelData, CustomWord, TestPulse
+from ..analysis import ChipData, CustomWord, TestPulse, customplot
 from .scan import ScanTest
 
 class ThresholdScan(ScanTest):
@@ -13,6 +12,12 @@ class ThresholdScan(ScanTest):
     sections = []
     axes = ["VCASN (#)", "Hits (#)"]
     injections = 1000
+
+    def __init__(self):
+        super().__init__()
+
+        self.ctrl_phases = [self.ctrl_phase0, self.ctrl_phase1, self.ctrl_phase2]
+        self.elab_phases = [self.elab_phase0, self.elab_phase1, self.elab_phase2]
 
     def pre_main(self):
         super().pre_main()
@@ -25,21 +30,19 @@ class ThresholdScan(ScanTest):
         self.chip.packets_reset()
         self.chip.send_tp(1)
         time.sleep(0.1)
-        read = self.readout(reset=True)
+        self.chip.custom_word(0xDEADDEAD)
+        read = self.elaborate_until(0xDEADDEAD)
 
         self.pixels = {}
 
         print("Starting scan on the following pixels:")
         counter = 0
-        for packet in self.analysis.packets:
-            if(type(packet) != PixelData):
-                continue
-
-            for p in packet.pixels:
+        for packet in read.data:
+            for p in packet.get_pixels():
                 p.injected = [0] * 64
                 p.noise    = [0] * 64
                 self.pixels[(p.row,p.col)] = p
-                print("\t%3d) %s" % (counter, p.to_string()))
+                print("\t%3d) %s" % (counter, p))
                 counter += 1
 
             if(packet.sec not in self.sections):
@@ -51,153 +54,77 @@ class ThresholdScan(ScanTest):
         self.range  = range(0,64)
         print("Changing biases on sections: ", end=""); print(self.sections)
 
-    def pre_loop(self):
+    def ctrl_phase0(self, iteration):
         for section in self.sections:
             self.chip.write_gcrpar('BIAS%1d_VCASN' % section, 1)
-        return
-
-    def loop_body(self, iteration):
-        th = iteration
-
-        for section in self.sections:
-            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, th)
+            self.chip.write_gcrpar('BIAS%1d_VCASN' % section, iteration)
         
         self.chip.custom_word(0xDEAFABBA, iteration)
         self.chip.read_enable(self.sections)
         self.chip.injection_digital(self.sections)
         self.chip.send_tp(2)
-        time.sleep(0.1)
-
         self.chip.custom_word(0xBEEFBEEF, iteration)
+
+    def ctrl_phase1(self, iteration):
         self.chip.injection_analog(self.sections)
         self.chip.send_tp(self.injections)
-        time.sleep(0.2)
-
+        time.sleep(0.1)
         self.chip.custom_word(0xDEADBEEF, iteration)
+
+    def ctrl_phase2(self, iteration):
         for i in range(0,self.injections):
             self.chip.injection_analog(self.sections)
             self.chip.injection_digital(self.sections)
 
-        time.sleep(0.2)
-
+        time.sleep(0.1)
         self.chip.read_disable(self.sections)
         self.chip.custom_word(0xCAFECAFE, iteration)
 
-    def post_main(self):
-        super().post_main()
-        print("Fetching results...")
-        self.readout(reset=True)
-        print("Now analysing results...")
+    def elab_phase0(self, iteration):
+        # Start of test
+        results = self.elaborate_until(0xDEAFABBA)
+        th = results.payload
 
-        iterator = iter(self.analysis.packets)
-        packet = next(p for p in iterator if type(p) == CustomWord and p.word == 0xDEAFABBA)
-        counter = 0
-        invalid = [[] for _ in range(64)]
-        with tqdm(total=len(self.analysis.packets), desc='Data analysis') as bar:
-            while True:
-                th = packet.payload
-                bar.update(counter)
-                counter = 0;
+        # Check Digital injections
+        dig_injs = self.elaborate_until(0xBEEFBEEF)
+        if dig_injs.message_error or dig_injs.incomplete:
+            raise ValueError()
 
-                # Check Digital injections
-                dig_injs = []
-                tps = 0
-                ts = time.time()
-                c=0
-                while True:
-                    try:
-                        packet = next(iterator); counter += 1
-                        if(type(packet) == PixelData):
-                            dig_injs.append(packet)
-                        elif(type(packet) == TestPulse):
-                            tps += 1
-                        else:
-                            break
-                    except StopIteration:
-                        break
+        for section in self.sections:
+            packets = list(filter(lambda x : x.sec == section, dig_injs.data))
 
-                    c += 1
+            if len(packets) < len(dig_injs.tps):
+                self.invalid[section].append(th)
 
-                for section in self.sections:
-                    packets = list(filter(lambda x:type(x) == PixelData and x.sec == section, dig_injs))
-                    num = len(packets)
+    def elab_phase1(self, iteration):
+        # Analog hits
+        analog_hits = self.elaborate_until(0xDEADBEEF)
+        th = analog_hits.payload
+        if analog_hits.message_error or analog_hits.incomplete:
+            raise ValueError()
 
-                    if(num < tps):
-                        #raise RuntimeError("TH:%u - Section %u didn't receive the digitally injected packets." % (th, section))
-                        invalid[th].append(section)
+        tps = len(analog_hits.tps)
 
-                #print("\t\tElapsed for digital: %3d (%d packets)" % ((time.time() - ts)*1000, c))
-
-                # Go on to injected packets
-                if(type(packet) != CustomWord or packet.word != 0xBEEFBEEF or packet.payload != th):
-                    raise RuntimeError('Unexpected packet here %s ' % packet.to_string())
-
-                ts = time.time()
-                c=0
-                while True:
-                    try:
-                        packet = next(iterator); counter += 1
-                        if(type(packet) == PixelData):
-                            for pix in packet.pixels:
-                                try:
-                                    self.pixels[(pix.row,pix.col)].injected[th] += 1
-                                except KeyError:
-                                    self.logger.warning("Unexpected pixel in this run: %s" % pix.to_string())
-
-                        elif(type(packet) == TestPulse):
-                            continue
-                        else:
-                            break
-                    except StopIteration:
-                        break
-                    
-                    c += 1
-
-                #print("\t\tElapsed for injected: %3d (%d packets)" % ((time.time() - ts)*1000, c))
-
-                # Go on to noisy packets
-                if(type(packet) != CustomWord or packet.word != 0xDEADBEEF or packet.payload != th):
-                    raise RuntimeError('Unexpected packet here: %s ' % packet.to_string())
-
-                ts = time.time()
-                c = 0
-                while True:
-                    try:
-                        packet = next(iterator); counter += 1
-                        if(type(packet) == PixelData):
-                            for pix in packet.pixels:
-                                try:
-                                    self.pixels[(pix.row,pix.col)].noise[th] += 1
-                                except KeyError:
-                                    self.logger.warning("Unexpected pixel in this run: %s" % pix.to_string())
-                        elif(type(packet) == TestPulse):
-                            continue
-                        else:
-                            break
-                    except StopIteration:
-                        break
-
-                    c += 1
-
-                #print("\t\tElapsed for noise: %3d (%d packets)" % ((time.time() - ts)*1000, c))
-
-                if(type(packet) != CustomWord or packet.word != 0xCAFECAFE or packet.payload != th):
-                    raise RuntimeError('Unexpected packet here %s ' % packet.to_string())
-                
-                if(th > 63):
-                    break
-
+        for p in analog_hits.data:
+            for pix in p.get_pixels():
                 try:
-                    packet = next(iterator); counter += 1
-                except StopIteration:
-                    break
+                    self.pixels[(pix.row,pix.col)].injected[th] += 1
+                except KeyError:
+                    self.logger.warning("Unexpected pixel in this run: %s" % pix)
 
-                if(type(packet) != CustomWord or packet.word != 0xDEAFABBA):
-                    raise RuntimeError('Unexpected packet here: %s' % packet.to_string())
+    def elab_phase2(self, iteration):
+        # Check Noise hits
+        noisy_hits = self.elaborate_until(0xCAFECAFE)
+        th = noisy_hits.payload
+        if noisy_hits.message_error or noisy_hits.incomplete:
+            raise ValueError()
 
-        for i,l in enumerate(invalid):
-            if len(l) > 0:
-                print("Lane %d missing digital injections for threshold trials: %s" % (i, str(l)))
+        for p in noisy_hits.data:
+            for pix in p.get_pixels():
+                try:
+                    self.pixels[(pix.row,pix.col)].noise[th] += 1
+                except KeyError:
+                    self.logger.warning("Unexpected pixel in this run: %s" % pix)
 
     @customplot(('VCASN (#)', 'Efficiency(#)'), 'Threshold scan') 
     def singleplot(self, pix, show=True, saveas=None, ax=None):
