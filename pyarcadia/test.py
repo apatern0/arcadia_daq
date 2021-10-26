@@ -410,9 +410,23 @@ class Test:
         print("Readut %d packets", len(r))
         return r
 
-    def elaborate_until(self, word, payload=None, timeout=50, tries=50):
-        results = Results()
+    def extract(self, to_word, depth=2, timeout=50, tries=50):
+        to_merge = []
+        stop = None
 
+        for i in range(0, depth):
+            item = self.sequence[i]
+
+            if isinstance(item, CustomWord) and item == to_word:
+                stop = i
+                break
+
+        if stop is None:
+            return SubSequence(incomplete=True)
+
+        for i in range(0, stop):
+            if isinstance(item, SubSequence) and item.incomplete is False:
+                return self.sequence.
         for _ in range(tries):
             results.extend(self.sequence.pop_until(word, payload))
 

@@ -4,8 +4,11 @@ import time
 import math
 import functools
 import matplotlib
+import matplotlib.cm
 import matplotlib.pyplot as plt
 from tabulate import tabulate
+from dataclasses import dataclass
+from typing import List
 
 def customplot(axes, title):
     def decorator(f):
@@ -67,16 +70,13 @@ def customplot(axes, title):
         return wrapper
     return decorator
 
+@dataclass
+class FPGAData:
+    """Raw data packet from the FPGA.
 
-class Data:
-    word = 0
-    bits = 64
-
-    bytes = []
-
-    def __init__(self, word=None):
-        if word is not None:
-            self.word = int(word)
+    :param int word: 64-bit word from the FPGA
+    """
+    word: int = None
 
     def __index__(self):
         return self.word
@@ -84,46 +84,112 @@ class Data:
     def __format__(self, format_string):
         string = ""
         word = self.word
-        for i in range(0, self.bits, 8):
+        for i in range(0, 64, 8):
             word = word >> i*8
             string += format((word & 0xff), format_string)
 
         return string
 
     def to_hex(self):
-        string = ""
-        wb = self.to_bytes()
+        """Returns an hexadecimal representation of the data
 
-        for i in wb:
-            string = "{0:#0{1}x} ".format(i,4)[2:] + string
+        :return: Hex data
+        :rtype: string
+        """
+        string = ""
+        for i in self.to_bytes():
+            string = "{0:#0{1}x} ".format(i, 4)[2:] + string
 
         return string
 
     def to_bytes(self):
+        """Splits the data to 8-bit chunks
+
+        :return: List of bytes composing the data
+        :rtype: list of ints
+        """
         return [(self.word >> 8*x) & 0xff for x in range(8)]
 
+    def elaborate(self, sequence=None):
+        """Elaborates the data and returns the corresponding Packet. If it
+        is a Timestamp Overflow packet, updates the sequence accordingly.
 
+        :param Sequence sequence: Optional, the sequence the data belongs to
+        :returns: Data Packet of the corresponding type
+        :rtype: ChipData | TestPulse | CustomWord
+        """
+        ctrl = self.word >> ((8*7)+4)
+
+        # FPGA timestamp overflow
+        if ctrl == 0xf:
+            if sequence is not None:
+                sequence.ts_sw += 1
+
+            return None
+
+        # Test pulse
+        if ctrl == 0xa:
+            return TestPulse(self.word)
+
+        # Custom Word
+        if ctrl == 0xc:
+            return CustomWord(self.word)
+
+        # Chip data
+        return ChipData(self.word, sequence)
+
+@dataclass
 class Pixel:
-    row    = 0
-    col    = 0
+    """Represents a Pixel in the Matrix
 
-    def __init__(self, row, col):
-        self.row = row
-        self.col = col
+    :param int row: Pixel row
+    :param int col: Pixel col
+    """
+
+    row: int
+    col: int
 
     def get_sec(self):
+        """Returns the section the pixel belongs to
+
+        :return: The pixel's Section
+        :rtype: int
+        """
         return Pixel.sec_from_col(self.col)
 
     def get_dcol(self):
+        """Returns the double column the pixel belongs to
+
+        :return: The pixel's Double Column
+        :rtype: int
+        """
         return Pixel.dcol_from_col(self.col)
 
     def get_corepr(self):
+        """Returns the Pixel Region the pixel belongs to. This incremental
+        number starts from the bottom, and takes into account the Core address
+        as well.
+
+        :return: The pixel's Pixel Region
+        :rtype: int
+        """
         return Pixel.corepr_from_row(self.row)
 
     def get_master(self):
+        """Returns 0 if the pixel belogs to a Slave sub-PR or 1 if it
+        belongs to a master sub-PR.
+
+        :return: 1 if Master, 0 if Slave
+        :rtype: int
+        """
         return Pixel.master_from_row(self.row)
 
     def get_idx(self):
+        """Returns the pixel index in the sub-PR
+
+        :return: The pixel's index
+        :rtype: int
+        """
         return Pixel.idx_from_pos(self.row, self.col)
 
     def __str__(self):
@@ -131,77 +197,124 @@ class Pixel:
 
     @staticmethod
     def sec_from_col(col):
+        """Evaluates the Section from a pixel's X-coordinate
+
+        :param int col: Pixel's column number
+        :returns: Section index
+        :rtype: int
+        """
         return col >> 5
 
     @staticmethod
     def dcol_from_col(col):
+        """Evaluates the Double Column index, in a Section, from a pixel's X-coordinate
+
+        :param int col: Pixel's column number
+        :returns: Double Column index
+        :rtype: int
+        """
         return (col >> 1) & 0xf
 
     @staticmethod
     def corepr_from_row(row):
+        """Evaluates the Pixel Region index from a pixel's Y-coordinate
+
+        :param int row: Pixel's row number
+        :returns: Pixel Region index
+        :rtype: int
+        """
         return row >> 2
 
     @staticmethod
     def master_from_row(row):
+        """Evaluates whether the pixel belongs to a Master or Slave sub-PR
+
+        :param int row: Pixel's row number
+        :returns: 1 if Master, 0 if Slave
+        :rtype: int
+        """
         return (row >> 1) & 0x1
 
     @staticmethod
     def idx_from_pos(row, col):
+        """Evaluates the pixel's index within the sub-PR
+
+        :param int row: Pixel's row number
+        :param int col: Pixel's column number
+        :returns: Pixel's index within the sub-PR
+        :rtype: int
+        """
         return (row & 0x1)*2 + (col & 0x1)
 
-class ChipData(Data):
-    bottom  = 0
-    hitmap  = 0
-    corepr  = 0
-    col     = 0
-    sec     = 0
-    ser     = 0
-    ts      = 0
+@dataclass
+class ChipData:
+    """Represents a Data Packet received from the FPGA
 
-    ts_fpga = 0
-    ts_sw   = 0
-    ts_ext  = 0
+    :param FPGAData fpga_packet: Data packet received from the FPGA
+    :param Sequence sequence: Optional, sequence the data belongs to
+    """
 
-    pixels = []
+    fpga_packet: FPGAData
+    sequence: Sequence = None
 
-    def __init__(self, word=None, sequence=None):
-        super().__init__(word)
+    def __post_init__(self):
 
-        if sequence is not None:
-            self.ts_sw  = sequence.ts
+        if self.sequence is None:
+            self.ts_sw = None
+        else:
+            self.ts_sw = self.sequence.ts
 
-        if word is not None:
-            wb = self.to_bytes()
+        if self.fpga_packet is None:
+            self.bottom  = None
+            self.hitmap  = None
+            self.corepr  = None
+            self.col     = None
+            self.sec     = None
+            self.ts      = None
+            self.ts_fpga = None
+            self.ser     = None
+            return
 
-            self.bottom  = (wb[0] >> 0) & 0x01
-            self.hitmap  = (((wb[1] >> 0) & 0x01) << 7) | ((wb[0] >> 1) & 0x7F)
-            self.corepr  = (wb[1] >> 1) & 0x7F
-            self.col     = (wb[2] >> 0) & 0x0F
-            self.sec     = (wb[2] >> 4) & 0x0F
-            self.ts      = wb[3]
-            self.ts_fpga = (wb[6] << 16) | (wb[5] << 8) | wb[4]
-            self.ser     = wb[7] & 0xF
+        packet_bytes = self.fpga_packet.to_bytes()
 
-            self.ts_sw   = 0
-            self.pixels = []
+        self.bottom  = (packet_bytes[0] >> 0) & 0x01
+        self.hitmap  = (((packet_bytes[1] >> 0) & 0x01) << 7) | ((packet_bytes[0] >> 1) & 0x7F)
+        self.corepr  = (packet_bytes[1] >> 1) & 0x7F
+        self.col     = (packet_bytes[2] >> 0) & 0x0F
+        self.sec     = (packet_bytes[2] >> 4) & 0x0F
+        self.ts      = packet_bytes[3]
+        self.ts_fpga = (packet_bytes[6] << 16) | (packet_bytes[5] << 8) | packet_bytes[4]
+        self.ser     = packet_bytes[7] & 0xF
 
         self.extend_timestamp()
 
     def master_idx(self):
+        """Returns an index for the Master that produced the data packet
+
+        :returns: Master's index in the Chip
+        :rtype: int
+        """
         return (self.sec*16+self.col)*128+self.corepr
 
     def extend_timestamp(self):
+        """Extends the timestamp of the data packet by using the timestamp on the FPGA
+        """
         ts_fpga_msb = (self.ts_fpga & 0xffff00)
         ts_fpga_lsb = (self.ts_fpga & 0xff)
-        if (self.ts > ts_fpga_lsb):
+        if self.ts > ts_fpga_lsb:
             ts_fpga_msb = (ts_fpga_msb-0x100)
 
-        self.ts_ext  = (self.ts_sw << 24) | ts_fpga_msb | self.ts
+        self.ts_ext = (self.ts_sw << 24) | ts_fpga_msb | self.ts
 
     def get_pixels(self):
+        """Produces a list of Pixels contained in the data packet
+
+        :returns: List of pixels
+        :rtype: list[Pixel]
+        """
         pixels = []
 
-        for pix in range(0,8):
+        for pix in range(0, 8):
             if (self.hitmap >> pix) & 0b1 == 0:
                 continue
 
@@ -218,115 +331,107 @@ class ChipData(Data):
             row += corepr*4 + pr_row
             col = self.sec*32 + self.col*2 + pr_col
 
-            if row >511 or col > 511:
+            if row > 511 or col > 511:
                 raise IndexError('oob %s' % str(self))
 
-            p = Pixel(row, col)
-            pixels.append(p)
+            pixels.append(Pixel(row, col))
 
         return pixels
 
-    def get_prs(self):
-        prs = {}
-
-        master_hitmap = (self.hitmap >> 4)
-        if master_hitmap != 0:
-            prs[self.corepr] = master_hitmap
-
-        slave_hitmap = (self.hitmap & 0xf)
-        if slave_hitmap != 0:
-            prs[self.corepr + 1 - self.bottom] = slave_hitmap
-
-        return prs
-
     def __str__(self):
-        return "%s - SER[%2d] @ [%2d][%3d][%2x] = %s (%1d)" % (self.to_hex(), self.ser, self.sec, self.col, self.corepr, format(self.hitmap, '#010b'), self.bottom)
+        return "%s - SER[%2d] @ [%2d][%3d][%2x] = %s (%1d)" % (self.fpga_packet.to_hex(), self.ser, self.sec, self.col, self.corepr, format(self.hitmap, '#010b'), self.bottom)
 
-class TestPulse(Data):
-    ts = 0
-    ts_sw = 0
-    ts_ext = 0
+@dataclass
+class TestPulse:
+    """A TestPulse data packet from the FPGA
 
-    def __init__(self, word):
-        super().__init__(word)
-    
-        wb = self.to_bytes()
-        self.ts = (wb[2] << 16) | (wb[1] << 8) | wb[0]
+    :param FPGAData fpga_packet: 64-bit data from the FPGA
+    """
+    fpga_packet: FPGAData
+
+    def __post_init__(self):
+        packet_bytes = self.fpga_packet.to_bytes()
+        self.ts = (packet_bytes[2] << 16) | (packet_bytes[1] << 8) | packet_bytes[0]
         self.ts_ext = self.ts
 
     def __str__(self):
-        return "%s -      TP @ %d" % (self.to_hex(), self.ts_ext)
+        return "%s -      TP @ %d" % (self.fpga_packet.to_hex(), self.ts_ext)
 
-class CustomWord(Data):
-    def __init__(self, word):
-        super().__init__(word)
+@dataclass(eq=False)
+class CustomWord:
+    """A CustomWord data packet from the FPGA
 
-        wb = self.to_bytes()
-        self.message = (wb[6] << 40) | (wb[5] << 32) | (wb[4] << 24) | (wb[3] << 16) | (wb[2] << 8) | wb[1]
-        self.payload = wb[0]
+    :param FPGAData fpga_packet: 64-bit data from the FPGA
+    """
+    fpga_packet: FPGAData = None
+    message: int = None
+    payload: int = None
+
+    def __post_init__(self):
+        if self.fpga_packet is None:
+            return
+
+        packet_bytes = self.fpga_packet.to_bytes()
+        self.message = (packet_bytes[6] << 40) | (packet_bytes[5] << 32) | (packet_bytes[4] << 24) | (packet_bytes[3] << 16) | (packet_bytes[2] << 8) | packet_bytes[1]
+        self.payload = packet_bytes[0]
+
+    def __eq__(self, other):
+        if self.message != other.message:
+            return False
+
+        if self.message is None or other.message is None:
+            return True
+        
+        if self.message != other.payload:
+            return False
+
+        return True
 
     def __str__(self):
-        return "%s -     MSG : 0x%x - PAYLOAD : 0x%x" % (self.to_hex(), self.message, self.payload)
+        return "%s -     MSG : 0x%x - PAYLOAD : 0x%x" % (self.fpga_packet.to_hex(), self.message, self.payload)
 
-class FPGAData(Data):
-    def elaborate(self, sequence=None):
-        #self.logger.info("RawFPGAData: %2x - %#010b" % (self, self))
-        ctrl = self.word >> ((8*7)+4)
+class SubSequence:
+    """Part of a Sequence composed only by the relevant TestPulses and ChipDatas
+    """
+    tps: List[TestPulse] = None
+    data: List[ChipData] = None
 
-        # FPGA timestamp overflow
-        if ctrl == 0xf:
-            if sequence is not None:
-                sequence.ts_sw += 1
+    from_word: CustomWord = None
+    to_word: CustomWord = None
+    incomplete: bool = False
 
-            return None
+    def __init__(self, data=None):
+        if data is not None:
+            self.append(data)
 
-        # Test pulse
-        if ctrl == 0xa:
-            tp = TestPulse(self.word)
+    def append(self, data):
+        if isinstance(data, ChipData):
+            self.data.append(data)
+        elif isinstance(data, TestPulse):
+            self.tps.append(data)
+        else:
+            raise ValueError("Unsupported data type %s to append to the collection" % type(data))
 
-            #self.logger.info("Found test pulse @ %x" % tp.ts)
-            return tp
+    def extend(self, other):
+        if self.to_word is not None:
+            if not self.incomplete:
+                raise RuntimeError("Trying to extend a complete SubSequence")
 
-        if ctrl == 0xc:
-            c = CustomWord(self.word)
+            if self.to_word != other.to_word:
+                raise ValueError("Trying to extend with a Subsequence having a different endpoint")
 
-            return c
+        self.data.extend(other.data)
+        self.tps.extend(other.tps)
 
-        # Chip data
-        p = ChipData(self.word, sequence)
-        return p
+        self.to_word = other.to_word
+        self.incomplete = other.incomplete
 
-class Results:
-    def __init__(self, tps=None, data=None):
-        self.tps = tps if tps is not None else []
-        self.data = data if data is not None else []
-        self.payload = None
-
-        self.payload_error = False
-        self.message_error = False
-        self.incomplete = False
-
-    def append_data(self, data):
-        self.data.append(data)
-
-    def append_tps(self, tps):
-        self.tps.append(tps)
-
-    def extend(self, results):
-        self.data.extend(results.data)
-        self.tps.extend(results.tps)
-
-        self.payload = results.payload
-        self.incomplete = results.incomplete
-        self.payload_error = results.payload_error
-        self.message_error = results.message_error
-
-    def merge_data(self, check=False):
+    def squash_data(self, fail_on_smartreadout=False):
         self.data.sort(key=lambda x: x.master_idx(), reverse=True)
 
-        new_data = []
         smart_readouts = 0
 
+        # Skip to first non-smart packet
         tmp = None
         old_idx = None
         while True:
@@ -341,25 +446,27 @@ class Results:
                 break
 
             smart_readouts += 1
-            if check is True:
+            if fail_on_smartreadout is True:
                 raise ValueError("Data merging doesn't support Smart Readout... yet")
 
-        for d in self.data:
-            if d.bottom == 0 and (tmp.hitmap & 0xf) != 0:
-                if check is True:
+        # Elaborate
+        new_data = []
+        for i in self.data:
+            if i.bottom == 0 and (tmp.hitmap & 0xf) != 0:
+                if fail_on_smartreadout is True:
                     raise ValueError("Data merging doesn't support Smart Readout... yet")
 
                 smart_readouts += 1
                 continue
 
-            this_idx = d.master_idx()
+            this_idx = i.master_idx()
 
             if this_idx != old_idx:
                 tmp.bottom = 1
                 new_data.append(tmp)
-                tmp = d
+                tmp = i
             else:
-                tmp.hitmap |= d.hitmap
+                tmp.hitmap |= i.hitmap
 
             old_idx = this_idx
 
@@ -370,58 +477,63 @@ class Results:
 
         return smart_readouts
 
+    def dump(self, start=0, limit=0):
+        i = 0
+        toprint = []
+
+        while limit == 0 or i < limit:
+            try:
+                item = self.data[start+i]
+            except IndexError:
+                break
+
+            toprint.append([i, str(item)])
+            i += 1
+
+        print(tabulate(toprint, headers=["#", "Packet"]))
+
 class Sequence:
+    queue = None
+    ts_sw = 0
+
     def __init__(self, packets=None):
-        self.packets = []
-        self.ts_sw   = 0
+        self.queue = []
 
         if packets is not None:
             self.elaborate(packets)
 
     def __iter__(self):
-        yield from self.packets
+        yield from self.queue
+
+    def __getitem__(self, item):
+        return self.queue[item]
 
     def elaborate(self, packets):
         for packet in packets:
-            p = FPGAData(packet)
-            e = p.elaborate()
+            elaborated = packet.elaborate()
 
-            if e is not None:
-                self.packets.append(e)
+            if elaborated is None:
+                return
 
-    def pop_until(self, message, payload=None):
-        tps = []
-        data = []
-        p = None
-
-        results = Results()
-
-        while True:
             try:
-                p = self.packets.pop(0)
-            except IndexError:
-                results.incomplete = True
-                break
+                last = self.queue[-1]
+            except KeyError:
+                last = None
 
-            if isinstance(p, CustomWord):
-                if p.message != message:
-                    results.message_error = p.message
-                else:
-                    results.payload = p.payload & 0xff
+            # Processing a CustomWord
+            if isinstance(elaborated, CustomWord):
+                if isinstance(last, SubSequence):
+                    last.to_word = elaborated
+                    last.incomplete = False
 
-                if payload is not None and p.payload != payload:
-                    results.payload_error = True
+                self.queue.append(elaborated)
+                continue
 
-                break
-
-            if isinstance(p, ChipData):
-                results.append_data(p)
-            elif isinstance(p, TestPulse):
-                results.append_tps(p)
+            # Processing a TestPulse or a ChipData
+            if isinstance(last, CustomWord):
+                self.queue.append(SubSequence(elaborated))
             else:
-                raise ValueError('Packet p is no known type: %s' % p)
-
-        return results
+                last.append(elaborated)
 
     def analyze(self, pixels_cfg, printout=True, plot=False):
         tps = 0
@@ -430,7 +542,7 @@ class Sequence:
         hits = np.full((512, 512), np.nan)
 
         # Add received hits, keep track of tps
-        for p in self.packets:
+        for p in self.queue:
             if isinstance(p, TestPulse):
                 tps += 1
                 continue
@@ -498,17 +610,17 @@ class Sequence:
         ts_base = None
         while limit == 0 or i < limit:
             try:
-                p = self.packets[start+i]
+                item = self.queue[start+i]
             except IndexError:
                 break
 
             if ts_base is None:
                 ts = 0
-                ts_base = p.ts_ext
+                ts_base = item.ts_ext
             else:
-                ts = p.ts_ext - ts_base
+                ts = item.ts_ext - ts_base
 
-            toprint.append([i, ts, str(p)])
+            toprint.append([i, ts, str(item)])
             i += 1
 
-        print(tabulate(toprint, headers=["#", "Timestamp", "Packet dump"]))
+        print(tabulate(toprint, headers=["#", "Timestamp", "Item"]))

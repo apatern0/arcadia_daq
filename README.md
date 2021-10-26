@@ -1,14 +1,10 @@
-Minimal cli tool for the arcadia DAQ Board
+Comprehensive DAQ for the ARCADIA DMAPS chip.
 
-# Build and Setup
+# Pre-requisites
 To build and use this tool the [IPBus software](https://ipbus.web.cern.ch/doc/user/html/software/installation.html) need to be installed in `/opt/cactus`.
-Then the tool can then be built with
+The C++ sources needs to be compiled via:
 ```
-$ make all
-```
-then every time you want to use the software you will need to set:
-```
-$ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/cactus/lib/
+$ make -C work/bin all
 ```
 The IPBus documentation [suggest](https://ipbus.web.cern.ch/doc/user/html/performance.html#performance-tweaks-with-ethtool) to set the interrupt coalesce timer of the network card to the lowest value possible:
 ```
@@ -17,7 +13,22 @@ or
 $ sudo ethtool -C <iface> rx-usecs 1
 ```
 
-# Examples of use
+# Repository structure
+The repository has 5 folders:
+* cfg/ - XML files needed to setup IPBUS
+* example/ - Ready to use scripts for basic tests
+* pyarcadia/ - Root of the pyarcadia Python package
+* src/ - C++ sources to interface to the DAQ Board
+* work/ - Working directory
+
+# Run the software
+The sample scripts can be lauched from the working directory:
+```
+cd work
+PYTHONPATH=.. python3 -i ../examples/test_baseline.py
+```
+
+# Legacy CLI interface
 Print help string with available options:
 ```
 $ ./arcadia-cli -h
