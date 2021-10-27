@@ -13,34 +13,11 @@ from .analysis import *
 
 plt = matplotlib.pyplot
 
-class ChipListen:
-    chip = None
-    active = False
-
-    def __init__(self, chip):
-        self.chip = chip
-
-    def __enter__(self):
-        self.start()
-
-    def start(self):
-        self.active = True
-        self.chip.packets_read_start()
-
-    def _stop(self):
-        self.chip.packets_read_stop()
-
-    def stop(self):
-        self._stop()
-        self.active = False
-
-
 class Test:
     logger = None
     fpga = None
     chip = None
 
-    reader = None
     cfg = []
 
     chip_timestamp_divider = 0
@@ -69,9 +46,6 @@ class Test:
         ch.setFormatter(formatter)
         #ch.setLevel(logging.WARNING)
         self.logger.addHandler(ch)
-
-        # Add Listener
-        self.reader = ChipListen(self.chip)
 
         self.result = None
         self.lanes_excluded = []
@@ -155,8 +129,7 @@ class Test:
         return False
 
     def stabilize_lanes(self, sync=None, iterations=5):
-        if self.reader.active:
-            self.reader.stop()
+        self.chip.packets_read_stop()
 
         lanes_noisy = []
         iteration = 0
@@ -174,7 +147,7 @@ class Test:
 
                 # Get a sample of the noisy data
                 try:
-                    readout = self.readout(30)
+                    readout = self.chip.readout(30)
                 except StopIteration:
                     silence = True
                     break
@@ -228,13 +201,13 @@ class Test:
             # Send a TP, expect a packet per stable lane
             self.chip.send_tp(1)
             try:
-                readout = self.readout(40)
+                readout = self.chip.readout(40)
             except StopIteration:
                 readout = []
 
             lanes_ok = []
             lanes_invalid = []
-            elaborated = Sequence(readout)
+            elaborated = Sequence(readout, subsequences=False)
             for packet in elaborated:
                 if not isinstance(packet, ChipData):
                     continue
@@ -290,11 +263,11 @@ class Test:
         self.chip.send_tp(1)
         time.sleep(0.1)
         try:
-            readout = self.readout(30)
+            readout = self.chip.readout(30)
         except StopIteration:
             return False
 
-        elaborated = Sequence(readout)
+        elaborated = Sequence(readout, subsequences=False)
 
         tp = filter(lambda x:(type(x) == TestPulse), elaborated)
         data = filter(lambda x:(type(x) == ChipData), elaborated)
@@ -355,7 +328,7 @@ class Test:
             if ok:
                 if auto_read:
                     self.chip.packets_reset()
-                    self.reader.start()
+                    self.chip.packets_read_start()
 
                 return
 
@@ -370,79 +343,41 @@ class Test:
 
         return synced
 
-    def readout(self, max_packets=None, fail_on_error=True, timeout=50):
-        for _ in range(timeout):
-            in_fifo = self.chip.packets_count()
-            if in_fifo != 0:
-                break
-
-            time.sleep(0.1)
-
-        if in_fifo == 0:
-            raise StopIteration()
-
-        if self.reader.active:
-            return self.chip.packets_read()
-
-
-        packets_to_read = min(in_fifo, max_packets) if max_packets is not None else in_fifo
-        readout = self.chip.packets_read(packets_to_read)
-
-        if(len(readout) < packets_to_read and fail_on_error):
-            raise ValueError(f'Readout {readout} packets out of {packets_to_read}')
-
-        return readout
-
-    def readout_until(self, max_packets=None, timeout=50):
-        r = []
-        saved = 0
-        while True:
-            print("Read!")
-            to_read = (max_packets-saved) if max_packets is not None else None
+    def extract(self, timeout=50, tries=50, type=None):
+        extracted = None
+        for i in range(tries):
             try:
-                tmp = self.readout(to_read, timeout=timeout)
-            except StopIteration:
-                break
+                extracted = self.sequence[0]
+            except IndexError:
+                try:
+                    readout = self.chip.readout(timeout=timeout)
+                except StopIteration:
+                    continue
 
-            saved += len(tmp)
-            r.extend(tmp)
+                self.sequence.elaborate(readout)
 
-        print("Readut %d packets", len(r))
-        return r
+        if isinstance(extracted, CustomWord):
+            return self.sequence.pop(0)
 
-    def extract(self, to_word, depth=2, timeout=50, tries=50):
-        to_merge = []
-        stop = None
+        for _ in range(i, tries):
+            if not extracted.incomplete and len(self.sequence) > 1:
+                # Extract data
+                extracted = self.sequence.pop(0)
 
-        for i in range(0, depth):
-            item = self.sequence[i]
+                # Discard word
+                self.sequence.pop(0)
 
-            if isinstance(item, CustomWord) and item == to_word:
-                stop = i
-                break
+                # Return data
+                return extracted
 
-        if stop is None:
-            return SubSequence(incomplete=True)
-
-        for i in range(0, stop):
-            if isinstance(item, SubSequence) and item.incomplete is False:
-                return self.sequence.
-        for _ in range(tries):
-            results.extend(self.sequence.pop_until(word, payload))
-
-            if not results.incomplete:
-                return results
-
-            # Incomplete readout, try to read some more.
             try:
-                r = self.readout(timeout=timeout)
+                readout = self.chip.readout(timeout=timeout)
             except StopIteration:
-                return results
+                continue
 
-            # Elaborate
-            self.sequence = Sequence(r)
+            self.sequence.elaborate(readout)
 
-        return results
+        return False
 
     def save(self, saveas):
         fn = saveas+".npy"

@@ -118,6 +118,8 @@ class FPGAData:
         :returns: Data Packet of the corresponding type
         :rtype: ChipData | TestPulse | CustomWord
         """
+        self.word = int(self.word)
+
         ctrl = self.word >> ((8*7)+4)
 
         # FPGA timestamp overflow
@@ -129,14 +131,18 @@ class FPGAData:
 
         # Test pulse
         if ctrl == 0xa:
-            return TestPulse(self.word)
+            return TestPulse(self)
 
         # Custom Word
         if ctrl == 0xc:
-            return CustomWord(self.word)
+            return CustomWord(self)
 
         # Chip data
-        return ChipData(self.word, sequence)
+        return ChipData(self, sequence)
+
+    @staticmethod
+    def from_packets(packets):
+        return [FPGAData(x) for x in packets]
 
 @dataclass
 class Pixel:
@@ -255,12 +261,11 @@ class ChipData:
     """
 
     fpga_packet: FPGAData
-    sequence: Sequence = None
+    sequence: object = None
 
     def __post_init__(self):
-
         if self.sequence is None:
-            self.ts_sw = None
+            self.ts_sw = 0
         else:
             self.ts_sw = self.sequence.ts
 
@@ -376,13 +381,16 @@ class CustomWord:
         self.payload = packet_bytes[0]
 
     def __eq__(self, other):
+        if not isinstance(other, CustomWord):
+            return False
+
         if self.message != other.message:
             return False
 
-        if self.message is None or other.message is None:
+        if self.payload is None or other.payload is None:
             return True
         
-        if self.message != other.payload:
+        if self.payload != other.payload:
             return False
 
         return True
@@ -393,12 +401,12 @@ class CustomWord:
 class SubSequence:
     """Part of a Sequence composed only by the relevant TestPulses and ChipDatas
     """
-    tps: List[TestPulse] = None
-    data: List[ChipData] = None
+    tps: List[TestPulse] = []
+    data: List[ChipData] = []
 
     from_word: CustomWord = None
     to_word: CustomWord = None
-    incomplete: bool = False
+    incomplete: bool = True
 
     def __init__(self, data=None):
         if data is not None:
@@ -477,27 +485,36 @@ class SubSequence:
 
         return smart_readouts
 
-    def dump(self, start=0, limit=0):
+    def dump(self, limit=0, start=0):
         i = 0
         toprint = []
 
+        ts_base = None
         while limit == 0 or i < limit:
             try:
                 item = self.data[start+i]
             except IndexError:
                 break
 
-            toprint.append([i, str(item)])
+            if ts_base is None:
+                ts = 0
+                ts_base = item.ts_ext
+            else:
+                ts = item.ts_ext - ts_base
+
+            toprint.append([i, ts, str(item)])
             i += 1
 
-        print(tabulate(toprint, headers=["#", "Packet"]))
+        print(tabulate(toprint, headers=["#", "Timestamp", "Item"]))
 
 class Sequence:
     queue = None
     ts_sw = 0
+    subsequences = True
 
-    def __init__(self, packets=None):
+    def __init__(self, packets=None, subsequences=True):
         self.queue = []
+        self.subsequences = subsequences
 
         if packets is not None:
             self.elaborate(packets)
@@ -508,6 +525,12 @@ class Sequence:
     def __getitem__(self, item):
         return self.queue[item]
 
+    def __len__(self):
+        return len(self.queue)
+
+    def pop(self, item):
+        return self.queue.pop(item)
+
     def elaborate(self, packets):
         for packet in packets:
             elaborated = packet.elaborate()
@@ -517,12 +540,12 @@ class Sequence:
 
             try:
                 last = self.queue[-1]
-            except KeyError:
+            except IndexError:
                 last = None
 
             # Processing a CustomWord
             if isinstance(elaborated, CustomWord):
-                if isinstance(last, SubSequence):
+                if self.subsequences and isinstance(last, SubSequence):
                     last.to_word = elaborated
                     last.incomplete = False
 
@@ -530,7 +553,13 @@ class Sequence:
                 continue
 
             # Processing a TestPulse or a ChipData
-            if isinstance(last, CustomWord):
+
+            # Subsequences off?
+            if not self.subsequences:
+                self.queue.append(elaborated)
+                continue
+
+            if last is None or isinstance(last, CustomWord):
                 self.queue.append(SubSequence(elaborated))
             else:
                 last.append(elaborated)
@@ -607,20 +636,13 @@ class Sequence:
         i = 0
         toprint = []
 
-        ts_base = None
         while limit == 0 or i < limit:
             try:
                 item = self.queue[start+i]
             except IndexError:
                 break
 
-            if ts_base is None:
-                ts = 0
-                ts_base = item.ts_ext
-            else:
-                ts = item.ts_ext - ts_base
-
-            toprint.append([i, ts, str(item)])
+            toprint.append([i, str(item)])
             i += 1
 
-        print(tabulate(toprint, headers=["#", "Timestamp", "Item"]))
+        print(tabulate(toprint, headers=["#", "Packet"]))

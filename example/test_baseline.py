@@ -1,11 +1,11 @@
-from pyarcadia.tests.baseline import MatrixBaselineScan
+from pyarcadia.tests.baseline import BaselineScan
 import logging
 
 #x = BaselineScan()
-x = MatrixBaselineScan()
+x = BaselineScan()
 x.set_timestamp_resolution(1E-6)
 
-x.logger.setLevel(logging.WARNING)
+x.logger.setLevel(logging.INFO)
 x.initialize(auto_read=False)
 
 x.chip.pixels_mask()

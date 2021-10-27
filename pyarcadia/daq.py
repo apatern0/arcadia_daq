@@ -17,6 +17,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from arcadia_daq import FPGAIf, ChipIf, set_ipbus_loglevel
+from .analysis import FPGAData
+
 set_ipbus_loglevel(0)
 
 def onehot(bits, base=0x0000):
@@ -661,3 +663,16 @@ class Chip:
                 lanes.append(i)
 
         return lanes
+
+    def readout(self, max_packets=500, timeout=50):
+        for _ in range(timeout):
+            in_fifo = self.packets_count()
+            if in_fifo != 0:
+                break
+
+            time.sleep(0.1)
+
+        if in_fifo == 0:
+            raise StopIteration("Zero packets in fifo after %.1f seconds" % (timeout*0.1))
+
+        return FPGAData.from_packets(self.packets_read(max_packets))
