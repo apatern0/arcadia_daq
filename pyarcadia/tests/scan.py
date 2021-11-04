@@ -1,6 +1,7 @@
-from tqdm import tqdm
-import numpy as np
+import time
 import threading
+import numpy as np
+from tqdm import tqdm
 
 from ..test import Test, customplot
 
@@ -13,10 +14,14 @@ class ParallelAnalysis(threading.Thread):
 
     def run(self):
         for i in self.test.range:
+            while self.test.ctrl_iteration < i:
+                time.sleep(0.5)
+
             for p in self.test.elab_phases:
                 p(i)
 
             self.test.ebar.update(1)
+            self.test.elab_iteration = i
 
         self.test.chip.packets_read_stop()
 
@@ -31,6 +36,9 @@ class ScanTest(Test):
 
     ctrl_phases = []
     elab_phases = []
+
+    ctrl_iteration = 0
+    elab_iteration = 0
 
     def pre_main(self):
         return
@@ -55,12 +63,14 @@ class ScanTest(Test):
                 for p in self.ctrl_phases:
                     p(i)
                 bar.update(1)
+                self.ctrl_iteration = i
         
         with tqdm(total=len(self.range), desc='Elaboration') as ebar:
             for i in self.range:
                 for p in self.elab_phases:
                     p(i)
                 ebar.update(1)
+                self.elab_iteration = i
 
         self.post_main()
 
@@ -76,6 +86,7 @@ class ScanTest(Test):
                 for p in self.ctrl_phases:
                     p(i)
                 abar.update(1)
+                self.ctrl_iteration = i
 
             analysis_thread.join()
  
@@ -91,6 +102,8 @@ class ScanTest(Test):
                     self.elab_phases[p](i)
 
                 bar.update(1)
+                self.ctrl_iteration = i
+                self.elab_iteration = i
         
         self.post_main()
 

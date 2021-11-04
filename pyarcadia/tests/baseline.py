@@ -4,7 +4,8 @@ import math
 import time
 
 from ..test import customplot
-from ..analysis import ChipData, CustomWord, TestPulse, SubSequence
+from ..data import ChipData, CustomWord, TestPulse
+from ..sequence import Sequence
 from .scan import ScanTest
 
 class BaselineScan(ScanTest):
@@ -13,12 +14,11 @@ class BaselineScan(ScanTest):
     sections = []
     range = None
 
-    sequence = None
-
     def __init__(self):
         super().__init__()
         self.sections = [x for x in range(16) if x not in self.lanes_excluded]
         self.result = np.full((512, 512), np.nan)
+        self.sequence.timeout = 10
 
         self.ctrl_phases = [self.ctrl_phase0, self.ctrl_phase1]
         self.elab_phases = [self.elab_phase0, self.elab_phase1]
@@ -28,50 +28,51 @@ class BaselineScan(ScanTest):
         self.result = np.full((512, 512), np.nan)
 
         self.chip.write_gcrpar('DISABLE_SMART_READOUT', 1)
-        self.chip.pixels_cfg(0b01, 0xffff, 0xffff, None, None, 0xf)
 
     def ctrl_phase0(self, iteration):
+        self.chip.packets_reset()
         self.chip.custom_word(0xDEAFABBA, iteration)
 
         for section in self.sections:
             self.chip.write_gcrpar('BIAS%1d_VCASN' % section, 1)
             self.chip.write_gcrpar('BIAS%1d_VCASN' % section, iteration)
         
-        """
-        self.chip.read_enable(self.sections)
-        self.chip.injection_digital(self.sections)
-        self.chip.send_tp(2)
-        time.sleep(0.1)
-        """
-        self.chip.custom_word(0xBEEFBEEF, iteration)
-
     def elab_phase0(self, iteration):
-        # Start of test
-        extracted = self.extract()
-        if extracted != CustomWord(message=0xDEAFABBA):
-            raise RuntimeError("Unexpected SubSequence: %s" % extracted)
+        ok = False
+        for _ in range(3):
+            # Start of test
+            try:
+                extracted = self.sequence.pop(0)
+            except:
+                self.ctrl_phase0(iteration)
+                continue
 
-        th = extracted.payload
+            if extracted[-1] == CustomWord(message=0xDEAFABBA):
+                ok = True
+                break
 
-        # Check Digital injections
-        extracted = self.extract()
-        if isinstance(extracted, SubSequence):
-            dig_injs = extracted
+            self.ctrl_phase0(iteration)
 
-            extracted = self.extract()
-        else:
-            dig_injs = SubSequence()
+        if not ok:
+            print("Main")
+            self.sequence.dump()
+            print("Sub")
+            for i in self.sequence._queue:
+                i.dump()
+            print("Extracted")
+            extracted.dump()
+            raise RuntimeError("Unexpected: %s" % extracted[-1])
 
-        if extracted != CustomWord(message=0xBEEFBEEF):
-            raise RuntimeError("Unexpected word: %s" % extracted)
+        th = extracted[-1].payload
 
     def ctrl_phase1(self, iteration):
+        self.chip.packets_reset()
         self.chip.read_enable(self.sections)
         for i in range(0,99):
             self.chip.injection_analog(self.sections)
             self.chip.injection_digital(self.sections)
 
-        time.sleep(0.1)
+        time.sleep(0.2)
         self.chip.read_disable(self.sections)
 
     def elab_phase1(self, iteration):
@@ -80,21 +81,32 @@ class BaselineScan(ScanTest):
         masked_total = 0
         smart_readouts = 0
 
+        threshold = 10
+        sub_threshold_trials = 0
+
         while True:
-            extracted = self.extract(timeout=2, type='SubSequence')
-            if isinstance(extracted, SubSequence):
-                noisy_hits = extracted
-            else:
+            try:
+                noisy_hits = self.sequence.pop(0, tries=1)
+
+                # If readout is complete, exit
+                if noisy_hits[-1] == CustomWord(message=0xBEEFBEEF) and noisy_hits is None:
+                    break
+            except Exception as e:
                 break
 
-            self.logger.info("Checking th %d, trial %d, read %d, masked past %d, total past %d" % (iteration, trial, len(noisy_hits.data), masked, masked_total))
+            noisy_hits_data = noisy_hits.get_data()
 
-            # Use noisy_hits.data to mask noisy pixels
-            smart_readouts += noisy_hits.squash_data(fail_on_smartreadout=False)
-            self.logger.info("Reduced to %d packets" % len(noisy_hits.data))
+            self.logger.info("Checking th %d, trial %d, read %d, masked past %d, total past %d" % (iteration, trial, len(noisy_hits_data), masked, masked_total))
+
+            # Use noisy_hits_data to mask noisy pixels
+            squashed = noisy_hits.squash_data()
+
+            self.logger.info("Processing trial %d packets were %d became %d" % (trial, len(noisy_hits_data), len(squashed)))
+            self.logger.info("Reduced to %d packets" % len(noisy_hits_data))
 
             masked = 0
-            for data in noisy_hits.data:
+            seen_again = 0
+            for data in squashed:
                 slave_hitmap = data.hitmap & 0xf
                 if slave_hitmap != 0:
                     self.chip.pixels_cfg(0b11, [data.sec], [data.col], [data.corepr], [0], slave_hitmap)
@@ -107,6 +119,7 @@ class BaselineScan(ScanTest):
 
                 for pix in pixels:
                     if not np.isnan(self.result[pix.row][pix.col]):
+                        seen_again += 1
                         continue
 
                     # First time we see this pixel. Mark its baseline and mask it
@@ -118,15 +131,24 @@ class BaselineScan(ScanTest):
             masked_total += masked
             self.pbar.update(masked)
 
-            silence = self.check_stability(100)
-            if not silence:
-                raise RuntimeError("Unable to shut the chip up!")
+            self.logger.info("Masked %d seen again %d" % (masked, seen_again))
+
+            # Avoid being stuck on barely-noisy pixels. Wiser to decrease the threshold,
+            # be a little less precise, but faster
+            if masked < threshold:
+                self.logger.info("Increasing subthreshold from %d because masked are %d" % (sub_threshold_trials, masked))
+                sub_threshold_trials += 1
+            else:
+                sub_threshold_trials = 0
+
+            if sub_threshold_trials > 10:
+                break
 
             # Loop again to check if there are more noisy pixels
             trial += 1
             self.ctrl_phase1(iteration + (trial << 6))
 
-        self.logger.warning("\n\nSmart readouts: %d\n\n" % smart_readouts)
+        self.logger.info("Passing w/ %d sub threshold trials out of %d" % (sub_threshold_trials, trial))
 
     def loop_reactive(self):
         self.sections = [x for x in range(16) if x not in self.lanes_excluded]

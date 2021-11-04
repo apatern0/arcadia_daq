@@ -3,7 +3,8 @@ import numpy as np
 import math
 import time
 
-from ..analysis import ChipData, CustomWord, TestPulse, customplot
+from ..data import ChipData, CustomWord, TestPulse
+from ..test import customplot
 from .scan import ScanTest
 
 class ThresholdScan(ScanTest):
@@ -31,13 +32,18 @@ class ThresholdScan(ScanTest):
         self.chip.send_tp(1)
         time.sleep(0.1)
         self.chip.custom_word(0xDEADDEAD)
-        read = self.elaborate_until(0xDEADDEAD)
+
+        test = None
+        while True:
+            test = self.sequence.pop(0)
+            if test[-1] == CustomWord(message=0xDEADDEAD):
+                break
 
         self.pixels = {}
 
         print("Starting scan on the following pixels:")
         counter = 0
-        for packet in read.data:
+        for packet in test.get_data():
             for p in packet.get_pixels():
                 p.injected = [0] * 64
                 p.noise    = [0] * 64
@@ -82,30 +88,49 @@ class ThresholdScan(ScanTest):
 
     def elab_phase0(self, iteration):
         # Start of test
-        results = self.elaborate_until(0xDEAFABBA)
-        th = results.payload
+        start = self.sequence.pop(0)
+
+        # If readout is complete, exit
+        if start[-1] != CustomWord(message=0xDEAFABBA):
+            raise RuntimeError("Unable to locate 0xDEAFABBA packet")
+
+        th = start[-1].payload
 
         # Check Digital injections
-        dig_injs = self.elaborate_until(0xBEEFBEEF)
-        if dig_injs.message_error or dig_injs.incomplete:
-            raise ValueError()
+        dig_injs = self.sequence.pop(0)
+
+        # If readout is complete, exit
+        if dig_injs[-1] != CustomWord(message=0xBEEFBEEF):
+            dig_injs.dump()
+            raise RuntimeError("Unable to locate 0xBEEFBEEF packet")
+
+        dig_injs_data = dig_injs.get_data()
+        dig_injs_tps = dig_injs.get_tps()
+
+        tps = len(dig_injs_tps)
 
         for section in self.sections:
-            packets = list(filter(lambda x : x.sec == section, dig_injs.data))
+            packets = list(filter(lambda x : x.sec == section, dig_injs_data))
 
-            if len(packets) < len(dig_injs.tps):
-                self.invalid[section].append(th)
+            if len(packets) < tps:
+                self.logger.warning("Section %d returned %d tps instead of %d" % (section, len(packets), tps))
 
     def elab_phase1(self, iteration):
         # Analog hits
-        analog_hits = self.elaborate_until(0xDEADBEEF)
-        th = analog_hits.payload
-        if analog_hits.message_error or analog_hits.incomplete:
-            raise ValueError()
+        analog_hits = self.sequence.pop(0)
 
-        tps = len(analog_hits.tps)
+        # If readout is complete, exit
+        if analog_hits[-1] != CustomWord(message=0xDEADBEEF):
+            analog_hits.dump()
+            raise RuntimeError("Unable to locate 0xDEADBEEF packet")
 
-        for p in analog_hits.data:
+        analog_hits_data = analog_hits.get_data()
+        analog_hits_tps = analog_hits.get_tps()
+        th = analog_hits[-1].payload
+
+        tps = len(analog_hits_tps)
+
+        for p in analog_hits_data:
             for pix in p.get_pixels():
                 try:
                     self.pixels[(pix.row,pix.col)].injected[th] += 1
@@ -114,12 +139,17 @@ class ThresholdScan(ScanTest):
 
     def elab_phase2(self, iteration):
         # Check Noise hits
-        noisy_hits = self.elaborate_until(0xCAFECAFE)
-        th = noisy_hits.payload
-        if noisy_hits.message_error or noisy_hits.incomplete:
-            raise ValueError()
+        noisy_hits = self.sequence.pop(0)
 
-        for p in noisy_hits.data:
+        # If readout is complete, exit
+        if noisy_hits[-1] != CustomWord(message=0xCAFECAFE):
+            noisy_hits.dump()
+            raise RuntimeError("Unable to locate 0xCAFECAFE packet")
+
+        noisy_hits_data = noisy_hits.get_data()
+        th = noisy_hits[-1].payload
+
+        for p in noisy_hits_data:
             for pix in p.get_pixels():
                 try:
                     self.pixels[(pix.row,pix.col)].noise[th] += 1
@@ -131,6 +161,7 @@ class ThresholdScan(ScanTest):
         inj = self.pixels[pix].injected
         #inj = [x/self.injections for x in inj]
         ax.plot(self.range, inj, '--bo', label='Test Pulses')
+        ax.set_ylim(bottom=0, top=4000)
 
         noise = self.pixels[pix].noise
         total = [x + y for x, y in zip(inj, noise)]

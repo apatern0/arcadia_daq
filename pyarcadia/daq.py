@@ -12,12 +12,13 @@
 # @section author_daq Author(s)
 # - Created by Andrea Paternò <andrea.paterno@to.infn.it>
 
-import os, sys, argparse, time, logging, math
+import os
+import time
+import math
 import numpy as np
-import matplotlib.pyplot as plt
 
 from arcadia_daq import FPGAIf, ChipIf, set_ipbus_loglevel
-from .analysis import FPGAData
+from .data import FPGAData
 
 set_ipbus_loglevel(0)
 
@@ -33,10 +34,10 @@ def onehot(bits, base=0x0000):
     :return: One-hot encoded value
     :rtype: int
     """
-    if(isinstance(bits, list)):
+    if isinstance(bits, list):
         onehot = 0x0000
         for item in bits:
-            onehot = onehot | (0xffff & (1 << item));
+            onehot = onehot | (0xffff & (1 << item))
 
         bits = onehot
 
@@ -140,7 +141,7 @@ class Chip:
         :param force_update: Updates from Chip
         :type force_update: bool
         """
-        ret, value = self.__chipif.read_gcr(gcr, force_update)
+        _, value = self.__chipif.read_gcr(gcr, force_update)
         return value
 
     def write_gcr(self, gcr, value):
@@ -294,7 +295,7 @@ class Chip:
 
         lanes = []
         for i in range(16):
-            if ((response >> i) & 0b1):
+            if (response >> i) & 0b1:
                 lanes.append(i)
 
         return lanes
@@ -305,7 +306,6 @@ class Chip:
         :param period: Period in FPGA Clock cycles
         :type period: int
         """
-        period = period
         self.send_controller_command('writeTimeStampPeriod', (period & 0xffff))
 
     # Chip commands
@@ -508,7 +508,6 @@ class Chip:
         self.gcr_onecold(5, sections, update)
 
     def force_nomask(self, sections=0xffff, update=False):
-        self.gcr_onehot(6, sections, update)
         """Override pixel's PCR to disable mask on selected sections.
 
         :param sections: Sections
@@ -517,6 +516,7 @@ class Chip:
         :param update: Update from previous value or substitute
         :type update: bool
         """
+        self.gcr_onehot(6, sections, update)
 
     def noforce_nomask(self, sections=0xffff, update=False):
         """Disables pixel's PCR override to disable mask on selected sections.
@@ -535,37 +535,33 @@ class Chip:
         """
         self.write_icr(0, onehot([8]))
 
-    def pixel_cfg(self, cfg, p):
+    def pixel_cfg(self, cfg, pixel):
         """Configure a pixel with a specific PCR value.
 
-        :param cfg: Value to configure the PCR to
-        :type cfg: 2-bit int
+        :param int cfg: Value to configure the PCR to
 
-        :param p: Pixel to configure
-        :type p: Pixel instance
+        :param Pixel pixel: Pixel to configure
         """
-        self.pixels_cfg(cfg, [p.get_sec()], [p.get_dcol()], [p.get_corepr()], [p.get_master()], [p.get_idx()])
+        self.pixels_cfg(
+            cfg,
+            [pixel.get_sec()],
+            [pixel.get_dcol()],
+            [pixel.get_corepr()],
+            [pixel.get_master()],
+            [pixel.get_idx()]
+        )
 
     def pixels_cfg(self, cfg, sections = 0xffff, columns = 0xffff, prs=None, master=None, pixels = 0xf):
         """Configure a set of pixels with a specific PCR value.
 
-        :param sections: Sections
-        :type sections: int or list of ints
-
-        :param columns: Columns
-        :type columns: int or list of ints
-
-        :param prs: Pixel Regions
-        :type prs: list of ints
-
-        :param master: Master sub-PR or Slave
-        :type master: int or list of ints
-
-        :param pixels: Pixels in the sub-PR
-        :type pixels: int or list of ints
+        :param int|List[int] sections: Sections
+        :param int|List[int] columns: Columns
+        :param int|List[int] prs: Pixel Regions
+        :param int|List[int] master: Master sub-PR or Slave
+        :param int|List[int] pixels: Pixels in the sub-PR
         """
         self.write_gcrpar('HELPER_SECCFG_SECTIONS', onehot(sections))
-        self.write_gcrpar('HELPER_SECCFG_COLUMNS',  onehot(columns))
+        self.write_gcrpar('HELPER_SECCFG_COLUMNS', onehot(columns))
 
         if prs is None:
             prs = [[0, 127]]
@@ -596,7 +592,6 @@ class Chip:
                 pselect = (subpr << 4) | (onehot(pixels) & 0xf)
                 self.write_gcrpar('HELPER_SECCFG_PIXELSELECT', pselect)
                 self.write_pcr()
-                time.sleep(0.001)
 
     def pixels_mask(self, sections=0xffff, columns=0xffff, prs=None, master=None, pixels = 0xf):
         """Mask a set of pixels
@@ -664,7 +659,7 @@ class Chip:
 
         return lanes
 
-    def readout(self, max_packets=500, timeout=50):
+    def readout(self, max_packets=32768, timeout=50):
         for _ in range(timeout):
             in_fifo = self.packets_count()
             if in_fifo != 0:

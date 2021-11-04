@@ -1,17 +1,76 @@
-import time, logging, math
-import matplotlib
-import threading
-import subprocess, signal
+import functools
+import time
+import logging
+import math
 import configparser
 import os
-import traceback
-from tqdm import tqdm
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
 
-from . import bcolors
-from .daq import *
-from .analysis import *
+from .daq import Fpga, onecold
+from .sequence import Sequence, SubSequence
+from .data import ChipData, TestPulse
 
-plt = matplotlib.pyplot
+def customplot(axes, title):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            if 'show' in kwargs:
+                show = kwargs['show']
+            elif len(args) > 1:
+                show = args[1]
+            else:
+                show = False
+
+            if 'saveas' in kwargs:
+                saveas = kwargs['saveas']
+            elif len(args) > 2:
+                saveas = args[2]
+            else:
+                saveas = None
+
+            if not show and saveas is None:
+                raise ValueError('Either show or save the plot!')
+
+            fig, ax = plt.subplots()
+
+            image = f(*args, **kwargs, ax=ax)
+
+            ax.set(xlabel=axes[0], ylabel=axes[1], title=title)
+            ax.margins(0)
+
+            if isinstance(image, list):
+                image = image.pop(0)
+
+            if isinstance(image, matplotlib.lines.Line2D):
+                ax.legend()
+                ax.grid()
+            elif isinstance(image, matplotlib.image.AxesImage):
+                plt.colorbar(image, orientation='horizontal')
+
+            if saveas is not None:
+                filename = saveas+".pdf"
+                if os.path.exists(filename):
+                    i = 1
+                    while True:
+                        filename = saveas + ("_%d" % i) + ".pdf"
+                        if not os.path.exists(filename):
+                            break
+
+                        i += 1
+
+                fig.savefig(filename, bbox_inches='tight')
+
+            if show:
+                matplotlib.interactive(True)
+                plt.show()
+            else:
+                matplotlib.interactive(False)
+                plt.close(fig)
+
+        return wrapper
+    return decorator
 
 class Test:
     logger = None
@@ -25,7 +84,7 @@ class Test:
     def __init__(self):
         self.fpga = Fpga()
         self.chip = self.fpga.get_chip(0)
-        self.sequence = Sequence()
+        self.sequence = Sequence(chip=self.chip, autoread=True)
         self.logger = logging.getLogger(__name__)
 
         # Load configuration
@@ -116,19 +175,20 @@ class Test:
         return synced
         
     def check_stability(self, trials=8):
-        for i in range(trials):
+        for _ in range(trials):
             self.chip.packets_reset()
             self.chip.packets_reset()
             packets_in_fifo = self.chip.packets_count()
-            if packets_in_fifo != 0:
-                time.sleep(0.01)
-                continue
-            else:
+            if packets_in_fifo == 0:
                 return True
+
+            time.sleep(0.01)
+            continue
 
         return False
 
     def stabilize_lanes(self, sync=None, iterations=5):
+        autoread = self.chip.packets_read_active()
         self.chip.packets_read_stop()
 
         lanes_noisy = []
@@ -156,7 +216,8 @@ class Test:
                 this_lanes_noisy = []
                 this_lanes_unsync = []
                 read = 0
-                elaborated = Sequence(readout)
+                print("Noisy uncync sequence")
+                elaborated = SubSequence(readout)
                 for pkt in elaborated:
                     if isinstance(pkt, ChipData):
                         read += 1
@@ -207,7 +268,7 @@ class Test:
 
             lanes_ok = []
             lanes_invalid = []
-            elaborated = Sequence(readout, subsequences=False)
+            elaborated = SubSequence(readout)
             for packet in elaborated:
                 if not isinstance(packet, ChipData):
                     continue
@@ -250,6 +311,8 @@ class Test:
             raise RuntimeError('Unable to stabilize the lanes!')
 
         self.lanes_excluded = self.chip.lanes_masked + lanes_dead
+        if autoread:
+            self.chip.packets_read_start()
 
     def timestamp_sync(self):
         self.chip.set_timestamp_delta(0)
@@ -267,7 +330,7 @@ class Test:
         except StopIteration:
             return False
 
-        elaborated = Sequence(readout, subsequences=False)
+        elaborated = SubSequence(readout)
 
         tp = filter(lambda x:(type(x) == TestPulse), elaborated)
         data = filter(lambda x:(type(x) == ChipData), elaborated)
@@ -343,51 +406,15 @@ class Test:
 
         return synced
 
-    def extract(self, timeout=50, tries=50, type=None):
-        extracted = None
-        for i in range(tries):
-            try:
-                extracted = self.sequence[0]
-            except IndexError:
-                try:
-                    readout = self.chip.readout(timeout=timeout)
-                except StopIteration:
-                    continue
-
-                self.sequence.elaborate(readout)
-
-        if isinstance(extracted, CustomWord):
-            return self.sequence.pop(0)
-
-        for _ in range(i, tries):
-            if not extracted.incomplete and len(self.sequence) > 1:
-                # Extract data
-                extracted = self.sequence.pop(0)
-
-                # Discard word
-                self.sequence.pop(0)
-
-                # Return data
-                return extracted
-
-            try:
-                readout = self.chip.readout(timeout=timeout)
-            except StopIteration:
-                continue
-
-            self.sequence.elaborate(readout)
-
-        return False
-
     def save(self, saveas):
-        fn = saveas+".npy"
-        if os.path.exists(fn):
+        filename = saveas + ".npy"
+        if os.path.exists(filename):
             i = 1
             while True:
-                fn = saveas + ("_%d" % i) + ".npy"
-                if not os.path.exists(fn):
+                filename = saveas + ("_%d" % i) + ".npy"
+                if not os.path.exists(filename):
                     break
 
                 i += 1
 
-        np.save(fn, self.result)
+        np.save(filename, self.result)
