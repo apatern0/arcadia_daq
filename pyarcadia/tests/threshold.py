@@ -1,9 +1,10 @@
-from tqdm import tqdm
-import numpy as np
 import math
 import time
+import os
+import numpy as np
+from tqdm import tqdm
 
-from ..data import ChipData, CustomWord, TestPulse
+from ..data import ChipData, CustomWord, TestPulse, Pixel
 from ..test import customplot
 from .scan import ScanTest
 
@@ -172,3 +173,31 @@ class ThresholdScan(ScanTest):
         for pixel in self.pixels:
             pix_saveas = None if saveas is None else f"{saveas}_{pixel[0]}_{pixel[1]}"
             self.singleplot(pixel, show=show, saveas=pix_saveas)
+
+    def serialize(self):
+        listed = []
+        listed.append(self.injections)
+
+        for pixel in self.pixels:
+            tmp = []
+            tmp.append(pixel[0])
+            tmp.append(pixel[1])
+            tmp.append(self.pixels[pixel].injected)
+            tmp.append(self.pixels[pixel].noise)
+
+            listed.append(tmp)
+
+        return listed
+
+    def _run(self):
+        self.loop_parallel()
+
+    def deserialize(self, serialized):
+        self.injections = serialized.pop(0)
+
+        for line in serialized:
+            p = Pixel(line[0], line[1])
+            p.injected = line[2]
+            p.noise = line[3]
+
+            self.pixels[(line[0], line[1])] = p

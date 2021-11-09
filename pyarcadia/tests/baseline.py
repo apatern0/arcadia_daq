@@ -150,12 +150,11 @@ class BaselineScan(ScanTest):
 
         self.logger.info("Passing w/ %d sub threshold trials out of %d" % (sub_threshold_trials, trial))
 
-    def loop_reactive(self):
+    def _run(self):
         self.sections = [x for x in range(16) if x not in self.lanes_excluded]
         total = 512*32*len(self.sections)
         with tqdm(total=total, desc='Masked pixels') as self.pbar:
             super().loop_reactive()
-
 
     @customplot(('Row (#)', 'Col (#)'), 'Baseline distribution')
     def plot(self, show=True, saveas=None, ax=None):
@@ -168,3 +167,9 @@ class BaselineScan(ScanTest):
                        ha="center", va="center", color="w")
         """
         return image
+
+    def serialize(self):
+        return self.result.tolist()
+
+    def deserialize(self, serialized):
+        self.result = np.array(serialized)

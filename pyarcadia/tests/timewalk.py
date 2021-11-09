@@ -5,7 +5,7 @@ import time
 import statistics
 
 from ..test import customplot
-from ..analysis import PixelData, CustomWord, TestPulse
+from ..data import ChipData, CustomWord, TestPulse
 from .threshold import ThresholdScan
 
 class TimewalkScan(ScanTest):
@@ -34,7 +34,7 @@ class TimewalkScan(ScanTest):
         print("Starting scan on the following pixels:")
         counter = 0
         for packet in self.analysis.packets:
-            if(type(packet) != PixelData):
+            if(type(packet) != ChipData):
                 continue
 
             for p in packet.pixels:
@@ -120,7 +120,7 @@ class TimewalkScan(ScanTest):
                     c += 1
 
                 for section in self.sections:
-                    packets = list(filter(lambda x:type(x) == PixelData and x.sec == section, dig_injs))
+                    packets = list(filter(lambda x:type(x) == ChipData and x.sec == section, dig_injs))
                     num = len(packets)
 
                     if(num < tps):
@@ -137,7 +137,7 @@ class TimewalkScan(ScanTest):
                 while True:
                     try:
                         packet = next(iterator); counter += 1
-                        if(type(packet) == PixelData):
+                        if(type(packet) == ChipData):
                             for pix in packet.pixels:
                                 try:
                                     self.pixels[(pix.row,pix.col)].injected[th].append(packet.ts_ext - packet.last_tp)
@@ -164,7 +164,7 @@ class TimewalkScan(ScanTest):
                 while True:
                     try:
                         packet = next(iterator); counter += 1
-                        if(type(packet) == PixelData):
+                        if(type(packet) == ChipData):
                             for pix in packet.pixels:
                                 try:
                                     self.pixels[(pix.row,pix.col)].noise[th] += 1

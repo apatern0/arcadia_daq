@@ -10,5 +10,5 @@ x.initialize()
 x.chip.pixels_mask()
 x.chip.pixels_cfg(0b01, 0xffff, [0], [0], [0], 0x0001)
 
-x.loop_parallel()
+x.run()
 x.plot(False, 'results/injection')

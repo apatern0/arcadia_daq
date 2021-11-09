@@ -75,6 +75,19 @@ PYBIND11_MODULE(arcadia_daq, m) {
 				return py::make_tuple(ret, rcv_data);
 				})
 
+		.def("dump_gcrs", [](ChipIf &chip, bool force_update) {
+				py::dict d;
+
+				for(auto const& reg: GCR_map) {
+					uint16_t value;
+					chip.read_gcrpar(reg.first, &value, force_update);
+
+					d[pybind11::cast(reg.first)] = value;
+				}
+
+				return d;
+				})
+
 		.def("read_gcr", [](ChipIf &chip, uint16_t addr, bool force_update) {
 				uint16_t value;
 				int ret = chip.read_gcr(addr, &value, force_update);

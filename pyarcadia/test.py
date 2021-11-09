@@ -4,9 +4,11 @@ import logging
 import math
 import configparser
 import os
+import codecs
+import json
+import datetime
 import matplotlib
 import matplotlib.pyplot as plt
-import numpy as np
 
 from .daq import Fpga, onecold
 from .sequence import Sequence, SubSequence
@@ -73,11 +75,15 @@ def customplot(axes, title):
     return decorator
 
 class Test:
+    """Test generator class. Contains helper functions and initialization
+    methods to prep the chip for testing. The class also provides methods
+    for its own data saving and loading.
+    """
     logger = None
     fpga = None
     chip = None
-
     cfg = []
+    gcrs = None
 
     chip_timestamp_divider = 0
 
@@ -110,6 +116,8 @@ class Test:
         self.lanes_excluded = []
 
     def load_cfg(self):
+        """Loads chip-wide configuration from a chip.ini file
+        """
         if not os.path.isfile("./chip.ini"):
             return False
 
@@ -124,6 +132,10 @@ class Test:
         self.chip.cfg = config[this_chip]
 
     def set_timestamp_resolution(self, res_s):
+        """Configures the timestamp resolution on both the chip and the FPGA.
+        
+        :param int res_s: Timestamp resolution in seconds
+        """
         clock_hz = 80E6
 
         chip_clock_divider = math.log( (clock_hz * res_s)/10, 2)
@@ -145,8 +157,9 @@ class Test:
 
         self.chip_timestamp_divider = chip_clock_divider
 
-    # Global
     def chip_init(self):
+        """Common chip initialization settings
+        """
         self.chip.enable_readout(0)
         self.chip.hard_reset()
         self.chip.reset_subsystem('chip', 1)
@@ -175,6 +188,13 @@ class Test:
         return synced
         
     def check_stability(self, trials=8):
+        """Ensures that the lanes are stable. Assumes that no data
+        are being sent from the chip, and checks that no data is
+        received. If the test fails, it is likely that there are
+        synchronization problems in the FPGA lanes or chip bugs.
+
+        :param int trials: Number of trials before failing
+        """
         for _ in range(trials):
             self.chip.packets_reset()
             self.chip.packets_reset()
@@ -187,7 +207,13 @@ class Test:
 
         return False
 
-    def stabilize_lanes(self, sync=None, iterations=5):
+    def stabilize_lanes(self, sync_not_calibrate=True, iterations=5):
+        """Performs a series of checks on the lanes to try to automatically
+        fix the noisy/dead ones, leaving the chip on a testable state.
+
+        :param int sync_not_calibrate: Don't perform lane calibration
+        :param int iterations: Number of consecutive stabilization trials
+        """
         autoread = self.chip.packets_read_active()
         self.chip.packets_read_stop()
 
@@ -232,7 +258,7 @@ class Test:
 
                 print("\tNoisy lanes: %s\n\tUnsync lanes: %s" % (str(this_lanes_noisy), str(this_lanes_unsync)))
 
-                if sync == 'sync':
+                if sync_not_calibrate:
                     self.resync(0xffff)
                 else:
                     self.chip.calibrate_deserializers()
@@ -297,7 +323,7 @@ class Test:
                 print("\t... but not deaf!")
                 break
 
-            if sync == 'sync':
+            if sync_not_calibrate:
                 self.resync(0xffff)
             else:
                 self.chip.calibrate_deserializers()
@@ -315,6 +341,8 @@ class Test:
             self.chip.packets_read_start()
 
     def timestamp_sync(self):
+        """Synchronizes Chip and FPGA timestamp counters
+        """
         self.chip.set_timestamp_delta(0)
 
         self.chip.pixels_mask()
@@ -370,7 +398,12 @@ class Test:
 
         self.chip.set_timestamp_delta(ts_delta)
 
-    def initialize(self, sync=None, auto_read=True):
+    def initialize(self, sync_not_calibrate=False, auto_read=True):
+        """Perform default test and chip initialization routines.
+
+        :param bool sync_not_calibrate: Avoid to perform lanes calibration
+        :param bool auto_read: Enable automatic packet readout from the FPGA
+        """
         for i in range(4):
             ok = True
 
@@ -380,7 +413,7 @@ class Test:
             to_mask = [item for item in list(range(16)) if item not in self.chip.lanes_masked]
 
             # Check and stabilize the lanes
-            self.stabilize_lanes(sync=sync, iterations=2)
+            self.stabilize_lanes(sync_not_calibrate, iterations=2)
 
             try:
                 self.timestamp_sync()
@@ -398,6 +431,11 @@ class Test:
         raise RuntimeError('Unable to receive data from the chip!')
 
     def resync(self, lanes=0xffff):
+        """Temporary enables sync mode on the chip, and perform
+        the lanes synchronization routing on the FPGA
+
+        :param int lanes: (Optional) Lanes to perform synchronization on
+        """
         self.chip.sync_mode()
         time.sleep(0.1)
         synced = self.chip.sync(lanes)
@@ -406,15 +444,94 @@ class Test:
 
         return synced
 
-    def save(self, saveas):
-        filename = saveas + ".npy"
-        if os.path.exists(filename):
+    @staticmethod
+    def _filename(saveas):
+        if os.path.exists(saveas):
+            split = saveas.split('.')
+            saveas = split[:-1]
+            ext = split[-1]
+
             i = 1
             while True:
-                filename = saveas + ("_%d" % i) + ".npy"
+                filename = saveas + ("_%d" % i) + ext
                 if not os.path.exists(filename):
                     break
 
                 i += 1
 
-        np.save(filename, self.result)
+            saveas = filename
+
+        return saveas
+
+    def _run(self):
+        raise NotImplementedError()
+
+    def deserialize(self, serialized):
+        raise NotImplementedError()
+
+    def serialize(self):
+        raise NotImplementedError()
+
+    def run(self):
+        """Saves the starting GCRs and runs the test
+        """
+        self.gcrs = self.chip.dump_gcrs(False)
+        self._run()
+
+    def save(self, saveas=None):
+        """Saves the GCR configuration and test results to file. If the filename is not
+        provided, the results will be saved into date folders, and incrementally indexed
+        timed files in those folders.
+
+        :param string saveas: (Optional) File to save the results to
+        """
+
+        listed = []
+        listed.append(self.gcrs)
+        listed.extend(self.serialize())
+
+        idx = 0
+        if saveas is None:
+            folder = "results__" + datetime.datetime.now().strftime("%d_%m_%Y")
+            if not os.path.exists(folder):
+                os.mkdir(folder)
+
+            # Get run idx
+            files = [f for f in os.listdir(folder)]
+            last_idx = 0
+            for filename in files:
+                if not os.path.isfile(os.path.join(folder, filename)):
+                    continue
+                
+                if not os.path.join(folder, filename).startswith("run__"):
+                    continue
+
+                nextunder = filename[5:].index("_")
+                if nextunder <= 0:
+                    continue
+
+                idx = int(filename[5:nextunder])
+                if idx > last_idx:
+                    last_idx = idx
+
+            idx = last_idx+1
+
+        time = datetime.datetime.now().strftime("%H_%M_%S")
+        saveas = os.path.join(folder, "run__" + str(idx) + "__" + time + ".json")
+
+        json.dump(listed, codecs.open(self._filename(saveas), 'w', encoding='utf-8'), separators=(',', ':'), sort_keys=True, indent=4)
+
+    def load(self, filename):
+        """Loads the GCR configuration and test results from a file.
+
+        :param string filename: File to read the results from
+        """
+        if not os.path.exists(filename):
+            print("Unable to load %s. Not found." % filename)
+            return
+
+        with codecs.open(filename, 'r', encoding='utf-8') as handle:
+            contents = json.loads(handle.read())
+            self.gcrs = contents.pop(0)
+
+            self.deserialize(contents)

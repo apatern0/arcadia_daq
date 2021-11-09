@@ -10,13 +10,13 @@ x.initialize(auto_read=False)
 
 x.chip.pixels_mask()
 x.chip.pixels_cfg(0b01, 0xffff, 0xffff, None, [0], 0xf)
-x.loop_reactive()
+x.run()
 
 slaves = x.result
 
 x.chip.pixels_cfg(0b10, 0xffff, 0xffff, None, [0], 0xf)
 x.chip.pixels_cfg(0b01, 0xffff, 0xffff, None, [1], 0xf)
-x.loop_reactive()
+x.run()
 
 masters = x.result
 
