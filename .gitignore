@@ -1,9 +1,11 @@
 *.raw
-results
 *.swp
 *.orig
 *.so
 *.o
 __pycache__
 work/bin/*
+work/results*
+work/vivado*
 !work/bin/Makefile
+docs/_build

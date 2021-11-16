@@ -458,7 +458,7 @@ int ChipIf::fifo_reset() {
 }
 
 
-uint32_t ChipIf::calibrate_deserializers() {
+uint32_t ChipIf::calibrate_deserializers(bool verbose) {
 	const int TAP_VALUES = 32;
 	const int LANES = 16;
 
@@ -505,8 +505,10 @@ uint32_t ChipIf::calibrate_deserializers() {
 		int stop    = -1;
 		int restart = -1;
 
+		if(verbose) std::cout << lane << " ";
+
 		for(int tap_val=0; tap_val < TAP_VALUES; tap_val++) {
-			//std::cout << std::hex << calibration_array[lane][tap_val] << " ";
+			if(verbose) std::cout << std::hex << calibration_array[lane][tap_val] << " ";
 			if (calibration_array[lane][tap_val] == 0) {
 				if(start == -1)
 					start = tap_val;
@@ -516,11 +518,11 @@ uint32_t ChipIf::calibrate_deserializers() {
 				stop = tap_val;
 		}
 
-		//std::cout << std::endl;
+		if(verbose) std::cout << std::endl;
 
-		if (start == -1)
-			std::cerr << "Error: can't find optimal taps in lane: " << lane << std::endl;
-		else {
+		if (start == -1) {
+			if(verbose) std::cerr << "Error: can't find optimal taps in lane: " << lane << std::endl;
+		} else {
 			if(stop == -1)
 				stop = TAP_VALUES;
 
@@ -530,6 +532,7 @@ uint32_t ChipIf::calibrate_deserializers() {
 			int avg = (stop+start)/2;
 
 			best_taps[lane] = (avg < 0) ? TAP_VALUES+avg : avg;
+			if(verbose) std::cout << "Best lane for " << lane << " is " << best_taps[lane] << std::endl;
 		}
 	}
 
@@ -556,7 +559,6 @@ uint32_t ChipIf::calibrate_deserializers() {
 
 		status = (errors == 0) ? 0 : 1;
 		locked = locked & ~(status << lane);
-		//printf("Lane %d errors %d status %d locked %x\n", lane, errors, status, locked);
 	}
 
 	return locked;

@@ -64,6 +64,7 @@ class Fpga(FPGAIf):
 
     :ivar lanes_masked: Sections to filter out during FPGA readout
     """
+    clock_hz = 80E6
 
     def init_connection(self, xml_file=None):
         """Initializes connectivity with the FPGA through IPBus
@@ -88,7 +89,7 @@ class Fpga(FPGAIf):
         :param chip_id: Number of the chip to retrieve [0,1,2]
         :type chip_id: int
         """
-        return Chip(chip_id, self.chips[chip_id])
+        return Chip(chip_id, self.chips[chip_id], self)
 
 class Chip:
     """The Chip class is used to interface with a chip. It
@@ -96,8 +97,12 @@ class Chip:
     its methods in order to provide auxiliary features.
     """
 
-    def __init__(self, chip_id, chipif):
+    fpga : Fpga = None
+    ts_us : int = None
+
+    def __init__(self, chip_id, chipif, fpga):
         self.__chipif = chipif
+        self.fpga = fpga
 
         self.id = chip_id
         self.lanes_masked = []
@@ -614,7 +619,7 @@ class Chip:
         self.pixels_cfg(0b11, sections, columns, prs, master, pixels)
 
     # Injection
-    def send_tp(self, pulses=1, t_on=1000, t_off=1000):
+    def send_tp(self, pulses=1, us_on=1, us_off=1):
         """Send a Test Pulse train to the chip.
 
         :param pulses: Number of Test Pulses to send
@@ -626,6 +631,18 @@ class Chip:
         :param t_off: TP low state duration in number of clock cycles
         :type t_off: int
         """
+
+        t_on_f = self.fpga.clock_hz*(us_on/1E6)
+        t_off_f = self.fpga.clock_hz*(us_off/1E6)
+
+        t_on = int(t_on_f)
+        t_off = int(t_off_f)
+
+        if t_on != t_on_f:
+            self.logger.warning("Cropping TP t_on from %.3f us to %.3f us", us_on, t_on/self.fpga.clock_hz*1E6)
+
+        if t_off != t_off_f:
+            self.logger.warning("Cropping TP t_off from %.3f us to %.3f us", us_off, t_off/self.fpga.clock_hz*1E6)
 
         if t_on > (1<<20):
             raise ValueError("TP On Time (%d) exceeds maximum value of %d." % (t_on, (1<<20)))
@@ -659,8 +676,8 @@ class Chip:
 
         return lanes
 
-    def readout(self, max_packets=32768, timeout=50):
-        for _ in range(timeout):
+    def readout(self, max_packets=32768, idle_start_timeout=50):
+        for i in range(idle_start_timeout):
             in_fifo = self.packets_count()
             if in_fifo != 0:
                 break
@@ -668,6 +685,6 @@ class Chip:
             time.sleep(0.1)
 
         if in_fifo == 0:
-            raise StopIteration("Zero packets in fifo after %.1f seconds" % (timeout*0.1))
+            raise StopIteration("Zero packets in fifo after %.1f seconds" % (idle_start_timeout*0.1))
 
         return FPGAData.from_packets(self.packets_read(max_packets))

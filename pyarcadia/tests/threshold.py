@@ -13,7 +13,7 @@ class ThresholdScan(ScanTest):
     th = 1
     sections = []
     axes = ["VCASN (#)", "Hits (#)"]
-    injections = 1000
+    injections = 100
 
     def __init__(self):
         super().__init__()

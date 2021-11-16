@@ -95,7 +95,7 @@ int main(int argc, char** argv){
 
 	if (cxxopts_res.count("calibrate")){
 		std::cout << "start calibration.." << std::endl;
-		fpga.chips[chipid]->calibrate_deserializers();
+		fpga.chips[chipid]->calibrate_deserializers(true);
 	}
 
 

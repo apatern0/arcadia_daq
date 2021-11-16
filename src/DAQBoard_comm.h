@@ -216,7 +216,7 @@ public:
 	int send_controller_command(std::string cmd, uint32_t arg, uint32_t* resp);
 
 	// Deserializer Calibration
-	uint32_t calibrate_deserializers();
+	uint32_t calibrate_deserializers(bool verbose=false);
 
 	// Base I/O
 	int spi_transfer(ARCADIA_command command, uint16_t payload, uint32_t* rcv_data);

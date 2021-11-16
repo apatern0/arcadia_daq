@@ -23,10 +23,13 @@ class SubSequence:
     def __init__(self, packets=None, parent=None):
         self._queue = []
         self.parent = parent
+        self.ts_sw = 0
+
+        seq = self if parent is None else parent
 
         if packets is not None:
             for packet in packets:
-                elaborated = packet.elaborate()
+                elaborated = packet.elaborate(seq)
                 if elaborated is not None:
                     self.append(elaborated)
 
@@ -171,6 +174,46 @@ class SubSequence:
 
             return self._queue.pop(item)
 
+    def filter_double_injections(self, t_on=500, fe_tol=1, tp_tol=5):
+        """Filters spurious injections due to the falling edge of the
+        Test Pulse coupling with the injection circuitry in the FEs.
+
+        :param int t_off: Delta of the TP falling edge w.r.t. the rising
+        """
+
+        if self.parent is None:
+            raise RuntimeError("The SubSequence doesn't have a valid parent Sequence. Unable to continue")
+
+        if self.parent.chip is None:
+            raise RuntimeError("The Sequence doesn't have a valid linked Chip. Unable to continue")
+
+        # t_on is in FPGA CCs. Translate into timestamp counts
+        ts_delta = int((t_on/self.parent.chip.fpga.clock_hz)*1E-6/self.parent.chip.ts_us)
+
+        tps = self.get_tps()
+        parsed = []
+        ambiguous = 0
+        for packet in self.get_data():
+            # Check whether it corresponds to a Test Pulse
+            found_tp = [x for x in tps if 0 <= packet.ts_ext - x.ts_ext <= tp_tol]
+
+            if len(found_tp) > 0:
+                parsed.append(packet)
+
+            # Check whether there is an already parsed packet which matches
+            ts_est = packet.ts_ext - ts_delta
+            found_fe = [x for x in parsed if -fe_tol <= ts_est - x.ts_ext <= fe_tol]
+
+            if len(found_fe) == 0:
+                if len(found_tp) > 0:
+                    ambiguous += 1
+                else:
+                    parsed.append(packet)
+            else:
+                print("Filtered packet:\n%s\nBecause it's similar to:\n%s" % (packet, found_fe))
+
+        return (parsed, ambiguous)
+
     def dump(self, limit=0, start=0):
         """Prints a dump of the packets contained in the SubSequence.
         :param int limit: How many packets to show
@@ -211,15 +254,13 @@ class Sequence:
     chip: object = None
     ts_sw = 0
     autoread = False
-    timeout = 50
     tries = 5
     _queue = None
     _popped = None
 
-    def __init__(self, packets=None, autoread=False, chip=None, timeout=50):
+    def __init__(self, packets=None, autoread=False, chip=None):
         self.autoread = autoread
         self.chip = chip
-        self.timeout = timeout
         self._queue = []
         self._popped = []
 
@@ -238,7 +279,7 @@ class Sequence:
     def __len__(self):
         return len(self._queue)
 
-    def pop(self, item=-1, tries=10, log=False):
+    def pop(self, item=-1, timeout=50, log=False):
         """Pops an element from the queue, fetches more packets
         if autoread is enabled
         :param int item: Index of the element to pop
@@ -247,18 +288,22 @@ class Sequence:
         :rtype: SubSequence
         """
         if self.autoread:
-            for _ in range(tries):
+            for tried in range(timeout):
                 if item >= len(self._queue):
-                    self.read_more()
+                    self.read_more(1)
                     continue
 
                 if not self._queue[item].is_complete():
                     try:
-                        self.read_more()
+                        self.read_more(1)
                     except StopIteration:
-                        continue
+                        pass
+
+                    continue
 
                 break
+
+        print("Complete: %s" % self._queue[item].is_complete())
 
         if log:
             self._popped.append(self._queue[item])
@@ -276,17 +321,17 @@ class Sequence:
                 continue
 
             if len(self._queue) == 0 or self._queue[-1].is_complete():
-                self._queue.append(SubSequence())
+                self._queue.append(SubSequence(parent=self))
 
             self._queue[-1].append(elaborated)
 
-    def read_more(self):
+    def read_more(self, idle_start_timeout=1):
         """Triggers a readout from the FPGA, and elaborates the data
         """
         if not isinstance(self.chip, Chip):
             raise RuntimeError("This sequence doesn't have a chip handle to use!")
 
-        self.elaborate(self.chip.readout(timeout=self.timeout))
+        self.elaborate(self.chip.readout(idle_start_timeout=idle_start_timeout))
 
     def dump(self, limit=0, start=0):
         """Prints a dump of the packets contained in the SubSequence.
@@ -307,73 +352,3 @@ class Sequence:
 
         print("Dumping %s:" % self)
         print(tabulate(toprint, headers=["#", "Item"]))
-
-"""
-    def analyze(self, pixels_cfg, printout=True, plot=False):
-        tps = 0
-        hitcount = 0
-
-        hits = np.full((512, 512), np.nan)
-
-        # Add received hits, keep track of tps
-        for p in self._queue:
-            if isinstance(p, TestPulse):
-                tps += 1
-                continue
-
-            if not isinstance(p, ChipData):
-                continue
-
-            # Is ChipData
-            pixels = p.get_pixels()
-            for pix in pixels:
-                if np.isnan(hits[pix.row][pix.col]):
-                    hits[pix.row][pix.col] = 1
-                else:
-                    hits[pix.row][pix.col] += 1
-
-                hitcount += 1
-
-        # Now subtract from what's expected
-        injectable = np.argwhere(pixels_cfg == 0b01)
-        for (row, col) in injectable:
-            if np.isnan(hits[row][col]):
-                hits[row][col] = -1
-            else:
-                hits[row][col] -= tps
-
-        # Report differences
-        unexpected = np.argwhere(np.logical_and(~np.isnan(hits), hits != 0))
-
-        toprint = []
-        for (row, col) in unexpected:
-            h = str(abs(hits[row][col])) + " (" + ("excess" if hits[row][col] > 0 else "missing") + ")"
-
-            sec = Pixel.sec_from_col(col)
-            dcol = Pixel.dcol_from_col(col)
-            corepr = Pixel.corepr_from_row(row)
-            master = Pixel.master_from_row(row)
-            idx = Pixel.idx_from_pos(row, col)
-            cfg = format(pixels_cfg[row][col], '#04b')
-
-            toprint.append([sec, dcol, corepr, master, idx, row, col, h, cfg])
-
-        if printout:
-            print("Injectables: %d x %d TPs = %d -> Received: %d" % (len(injectable), tps, len(injectable)*tps, hitcount))
-            print(tabulate(toprint, headers=["Sec", "DCol", "CorePr", "Master", "Idx", "Row", "Col", "Unexpected Balance", "Pixel Cfg"]))
-
-        if plot:
-            @customplot(('Row (#)', 'Col (#)'), 'Baseline distribution')
-            def aplot(matrix, show=True, saveas=None, ax=None):
-                cmap = matplotlib.cm.jet
-                cmap.set_bad('gray',1.)
-                image = ax.imshow(matrix, interpolation='none', cmap=cmap)
-
-                for i in range(1,16):
-                    plt.axvline(x=i*32-0.5,color='black')
-                return image
-
-            aplot(hits, show=True)
-
-        return toprint
-"""

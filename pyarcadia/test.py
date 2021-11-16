@@ -136,21 +136,20 @@ class Test:
         
         :param int res_s: Timestamp resolution in seconds
         """
-        clock_hz = 80E6
 
-        chip_clock_divider = math.log( (clock_hz * res_s)/10, 2)
+        chip_clock_divider = math.log( (self.fpga.clock_hz * res_s)/10, 2)
         if( math.floor(chip_clock_divider) != chip_clock_divider ):
             raise ValueError('Chip Clock Divider can\'t be set to non-integer value: %.3f' % chip_clock_divider)
         chip_clock_divider = math.floor(chip_clock_divider)
         self.logger.info('Chip clock divider: %d' % chip_clock_divider)
 
-        fpga_clock_divider = (clock_hz * res_s) -1
+        fpga_clock_divider = (self.fpga.clock_hz * res_s) -1
         if( math.floor(fpga_clock_divider) != fpga_clock_divider ):
             raise ValueError('FPGA Clock Divider can\'t be set to non-integer value: %.3f' % fpga_clock_divider)
         fpga_clock_divider = math.floor(fpga_clock_divider)
         self.logger.info('Fpga clock divider: %d' % fpga_clock_divider)
 
-        self.ts_us = res_s/1E6
+        self.chip.ts_us = res_s/1E6
 
         self.chip.write_gcrpar('TIMING_CLK_DIVIDER', chip_clock_divider)
         self.chip.set_timestamp_period(fpga_clock_divider)
@@ -164,7 +163,8 @@ class Test:
         self.chip.hard_reset()
         self.chip.reset_subsystem('chip', 1)
         self.chip.reset_subsystem('chip', 2)
-        self.chip.write_gcr(0, (0xFF00) | (self.chip_timestamp_divider << 8))
+        self.chip.write_gcrpar('READOUT_CLK_DIVIDER', 0)
+        self.chip.write_gcrpar('TIMING_CLK_DIVIDER', self.chip_timestamp_divider)
         self.chip.reset_subsystem('per', 1)
         self.chip.reset_subsystem('per', 2)
         self.chip.injection_digital()
@@ -179,6 +179,7 @@ class Test:
         self.chip.write_gcrpar('LVDS_STRENGTH', 0b111)
         self.chip.sync_mode()
         time.sleep(1)
+        self.chip.calibrate_deserializers()
         synced = self.chip.sync()
         self.chip.normal_mode()
         self.chip.enable_readout(synced)
@@ -216,59 +217,57 @@ class Test:
         """
         autoread = self.chip.packets_read_active()
         self.chip.packets_read_stop()
+        self.chip.enable_readout(0xffff)
 
         lanes_noisy = []
+        lanes_unsync = []
+        lanes_dead = []
+        lanes_invalid = []
         iteration = 0
-        while iteration < iterations:
-            print(f"Synchronization iteration {iteration}...")
-            silence = False
-            while iteration < 5:
-                self.chip.enable_readout(onecold(lanes_noisy, 0xffff))
+
+        for iteration in range(iterations):
+            print(f"Synchronization iteration {iteration}/{iterations}...")
+
+            for _ in range(iterations):
+                if sync_not_calibrate:
+                    self.resync(0xffff)
+                else:
+                    self.chip.calibrate_deserializers()
+
                 self.chip.packets_reset()
                 self.chip.packets_reset()
 
+                print("\tPerforming stabilization...")
                 if self.check_stability():
-                    silence = True
                     break
 
                 # Get a sample of the noisy data
                 try:
                     readout = self.chip.readout(30)
                 except StopIteration:
-                    silence = True
-                    break
+                    readout = []
 
                 # Distinguish between noisy and unsync
-                this_lanes_noisy = []
-                this_lanes_unsync = []
                 read = 0
-                print("Noisy uncync sequence")
                 elaborated = SubSequence(readout)
                 for pkt in elaborated:
                     if isinstance(pkt, ChipData):
                         read += 1
-                        if pkt.ser == pkt.sec and pkt.ser not in this_lanes_noisy:
-                            this_lanes_noisy.append(pkt.ser)
-                        elif pkt.ser not in this_lanes_unsync:
-                            this_lanes_unsync.append(pkt.ser)
+                        if pkt.ser == pkt.sec and pkt.ser not in lanes_noisy:
+                            lanes_noisy.append(pkt.ser)
+                        elif pkt.ser not in lanes_unsync:
+                            lanes_unsync.append(pkt.ser)
 
                 if read == 0:
-                    silence = True
                     break
 
-                print("\tNoisy lanes: %s\n\tUnsync lanes: %s" % (str(this_lanes_noisy), str(this_lanes_unsync)))
+                print("\t\tNoisy lanes: %s\n\t\tUnsync lanes: %s\n\t\tRetrying." % (str(lanes_noisy), str(lanes_unsync)))
 
-                if sync_not_calibrate:
-                    self.resync(0xffff)
-                else:
-                    self.chip.calibrate_deserializers()
-
-                lanes_noisy.extend(this_lanes_noisy)
-
-                iteration += 1
-
-            if not silence:
-                continue
+            tomask = list(set(lanes_noisy + lanes_unsync))
+            if len(tomask) > 0:
+                tomask.sort()
+                print("\tDisabling noisy/unsync lanes: %s" % (tomask))
+                self.chip.enable_readout(onecold(tomask, 0xffff))
 
             print("\tLines are silent.")
 
@@ -282,8 +281,10 @@ class Test:
 
             # There still silence?
             if not self.check_stability():
-                print("\tStability lost after injection enabling")
+                print("\tLines are still noisy! Trying again...")
                 continue
+
+            print("\tChecking sample data packets for errors...")
 
             # Send a TP, expect a packet per stable lane
             self.chip.send_tp(1)
@@ -313,30 +314,29 @@ class Test:
             ready = True
             if len(lanes_dead) != 0:
                 ready = False
-                print(f"\tIteration {iteration}. Missing data from lanes: " + str(lanes_dead))
+                print(f"\tMissing data from lanes: " + str(lanes_dead))
 
             if len(lanes_invalid) != 0:
                 ready = False
-                print(f"\tIteration {iteration}. Found invalid data from lanes: " + str(lanes_invalid))
+                print(f"\tFound invalid data from lanes: " + str(lanes_invalid))
 
             if ready:
-                print("\t... but not deaf!")
+                print("\t... all is good.")
                 break
 
-            if sync_not_calibrate:
-                self.resync(0xffff)
-            else:
-                self.chip.calibrate_deserializers()
-
-            iteration += 1
+        if iteration > iterations:
+            raise RuntimeError('Unable to mask noisy lanes. Aborting.')
 
         if len(lanes_dead) != 0:
             print('Tests will proceed with the following dead lanes: %s' % lanes_dead)
 
         if len(lanes_invalid) != 0:
-            raise RuntimeError('Unable to stabilize the lanes!')
+            print('Marking as dead the lanes that couldn\'t be stabilized: %s' % lanes_invalid)
 
-        self.lanes_excluded = self.chip.lanes_masked + lanes_dead
+        self.lanes_excluded = list(set(self.chip.lanes_masked + lanes_dead + lanes_invalid + lanes_noisy + lanes_unsync))
+        self.chip.lanes_masked = self.lanes_excluded
+        self.chip.enable_readout(0xffff)
+
         if autoread:
             self.chip.packets_read_start()
 
@@ -352,43 +352,30 @@ class Test:
 
         self.chip.packets_reset()
         self.chip.send_tp(1)
-        time.sleep(0.1)
-        try:
-            readout = self.chip.readout(30)
-        except StopIteration:
-            return False
+        elaborated = SubSequence(self.chip.readout(100))
+        tp = elaborated.get_tps()
+        data = elaborated.get_data()
 
-        elaborated = SubSequence(readout)
-
-        tp = filter(lambda x:(type(x) == TestPulse), elaborated)
-        data = filter(lambda x:(type(x) == ChipData), elaborated)
-
-        try:
-            tp = next(tp)
-        except StopIteration:
+        if len(tp) == 0:
             self.logger.fatal("Sync procedure returned no Test Pulses. Check chip status. Dump:")
             elaborated.dump()
             print("\n")
             raise RuntimeError("Check previous CRITICAL error")
 
-        try:
-            data = next(data)
-        except StopIteration:
+        if len(data) == 0:
             self.logger.fatal("Sync procedure returned no Data Packets. Check chip status. Dump:")
             elaborated.dump()
             print("\n")
             raise RuntimeError("Check previous CRITICAL error")
 
-        ts_tp = tp.ts
-        ts_fpga = data.ts_fpga
-        ts_tp_lsb = (ts_tp & 0xff)
+        tp = tp[0]
+        data = data[0]
+
         ts_chip = data.ts
-        if(ts_tp_lsb < ts_chip):
-            ts_tp_lsb = (1<<8) | ts_tp_lsb
+        ts_fpga = data.ts_fpga & 0xff
+        ts_delta = ts_fpga - ts_chip
 
-        ts_delta = ts_tp_lsb - ts_chip
-
-        self.logger.info("Test Pulse timestamp: 0x%x" % ts_tp)
+        self.logger.info("Test Pulse timestamp: 0x%x" % tp.ts)
         self.logger.info("Data timestamp: 0x%x (FPGA) 0x%x (CHIP)" % (ts_fpga, ts_chip))
 
         self.logger.info("Chip event anticipates fpga event, thus ts_fpga must be decreased to reach ts_chip")
@@ -398,7 +385,24 @@ class Test:
 
         self.chip.set_timestamp_delta(ts_delta)
 
-    def initialize(self, sync_not_calibrate=False, auto_read=True):
+        self.logger.info("Going again")
+
+        self.chip.packets_reset()
+        self.chip.send_tp(1)
+        elaborated = SubSequence(self.chip.readout(100))
+        tp = elaborated.get_tps()
+        data = elaborated.get_data()
+
+        tp = tp[0]
+        data = data[0]
+        ts_chip = data.ts
+        ts_fpga = data.ts_fpga & 0xff
+        ts_delta = ts_fpga - ts_chip
+
+        if ts_delta != 0:
+            self.logger.warning("Timestamp alignment failed: FPGA: %x CHIP: %x DELTA: %x", ts_fpga, ts_chip, ts_delta)
+
+    def initialize(self, sync_not_calibrate=True, auto_read=True, iterations=5):
         """Perform default test and chip initialization routines.
 
         :param bool sync_not_calibrate: Avoid to perform lanes calibration
@@ -409,11 +413,11 @@ class Test:
 
             # Initialize chip
             lanes_synced = self.chip_init()
-            #to_mask = [item for item in list(range(16)) if item not in (lanes_synced + self.chip.lanes_masked)]
+
             to_mask = [item for item in list(range(16)) if item not in self.chip.lanes_masked]
 
             # Check and stabilize the lanes
-            self.stabilize_lanes(sync_not_calibrate, iterations=2)
+            self.stabilize_lanes(sync_not_calibrate, iterations)
 
             try:
                 self.timestamp_sync()

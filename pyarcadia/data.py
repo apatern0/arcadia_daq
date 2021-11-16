@@ -61,7 +61,7 @@ class FPGAData:
 
         # Test pulse
         if ctrl == 0xa:
-            return TestPulse(self)
+            return TestPulse(self, sequence)
 
         # Custom Word
         if ctrl == 0xc:
@@ -276,7 +276,7 @@ class ChipData:
         return pixels
 
     def __str__(self):
-        return "%s - SER[%2d] @ [%2d][%3d][%2x] = %s (%1d)" % (self.fpga_packet.to_hex(), self.ser, self.sec, self.col, self.corepr, format(self.hitmap, '#010b'), self.bottom)
+        return "%s - SER[%2d] @ [%2d][%3d][%2x] = %s (%1d) @ %d %d %d = %d" % (self.fpga_packet.to_hex(), self.ser, self.sec, self.col, self.corepr, format(self.hitmap, '#010b'), self.bottom, self.ts_sw, self.ts_fpga, self.ts, self.ts_ext)
 
 @dataclass
 class TestPulse:
@@ -285,11 +285,17 @@ class TestPulse:
     :param FPGAData fpga_packet: 64-bit data from the FPGA
     """
     fpga_packet: FPGAData
+    sequence: 'Sequence' = None
 
     def __post_init__(self):
+        if self.sequence is None:
+            self.ts_sw = 0
+        else:
+            self.ts_sw = self.sequence.ts_sw
+
         packet_bytes = self.fpga_packet.to_bytes()
         self.ts = (packet_bytes[2] << 16) | (packet_bytes[1] << 8) | packet_bytes[0]
-        self.ts_ext = self.ts
+        self.ts_ext = (self.ts_sw << 24) | self.ts
 
     def __str__(self):
         return "%s -      TP @ %d" % (self.fpga_packet.to_hex(), self.ts_ext)
