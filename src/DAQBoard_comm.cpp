@@ -460,6 +460,14 @@ uint32_t ChipIf::fifo_idle_count() {
 	return idlecounter;
 }
 
+void ChipIf::fifo_overflow_counter_reset() {
+	const uhal::Node& node_fifo_reset = fpga->lHW.getNode("regfile.mode");
+	node_fifo_reset.write(0xffff);
+	fpga->lHW.dispatch();
+	node_fifo_reset.write(0x0000);
+	fpga->lHW.dispatch();
+}
+
 int ChipIf::fifo_reset() {
 	if (run_flag){
 		std::cerr << "DAQ Thread running, refusing to reset fifo" << std::endl;

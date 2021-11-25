@@ -30,7 +30,7 @@ class Test:
     def __init__(self):
         self.fpga = Fpga()
         self.chip = self.fpga.get_chip(0)
-        self.sequence = Sequence(chip=self.chip, autoread=True)
+        self.sequence = Sequence(chip=self.chip)
         self.logger = logging.getLogger(__name__)
 
         self.title = ''

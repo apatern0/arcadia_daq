@@ -123,6 +123,7 @@ class Chip:
         """
         self.logger.debug("Writing GCR_PAR[%s] = 0x%x" % (gcrpar, value))
         self.__chipif.write_gcrpar(gcrpar, value)
+        time.sleep(0.1E-3)
 
     def read_gcrpar(self, gcrpar, force_update=False):
         """Reads a GCR
@@ -160,6 +161,7 @@ class Chip:
         """
         self.logger.debug("Writing GCR[%2d] = 0x%x" % (gcr, value))
         self.__chipif.write_gcr(gcr, value)
+        time.sleep(0.1E-3)
 
     def write_icr(self, icr, value):
         """Writes an ICR
@@ -227,28 +229,25 @@ class Chip:
         return self.__chipif.packets_reset()
 
     def packets_idle_time(self):
-        """Get the number of microseconds elapsed since data has been written to the FIFO
+        """Get the number of seconds elapsed since data has been written to the FIFO
 
-        :return: Microseconds elapsed
+        :return: Seconds elapsed
         :rtype: int
         """
         return 4*self.__chipif.fifo_idle_count()/self.fpga.clock_hz
 
-    def packets_idle_wait(self, start=1E-3, step=1E-3, end=1E-3, timeout=None, disable=True):
+    def packets_idle_wait(self, expected=1E-3, timeout=None, idle=20E-6, step=1E-3, disable=True):
         t0 = time.time()
-        time.sleep(start)
 
         while True:
-            if timeout is not None and time.time() - t0 > timeout:
+            if self.packets_idle_time() > idle:
                 break
 
-            if self.packets_idle_time() > end:
-                break
+            elapsed = time.time() - t0
+            if timeout is not None and expected < elapsed > timeout:
+                self.read_disable()
 
             time.sleep(step)
-
-        if disable:
-            self.read_disable()
 
     def packets_lost_count(self):
         """Get the number of data packets lost due to FPGA FIFO being full

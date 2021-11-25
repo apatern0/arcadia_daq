@@ -7,6 +7,7 @@ class FPGAData:
     :param int word: 64-bit word from the FPGA
     """
     word: int = None
+    packets_count = 0
 
     def __index__(self):
         return self.word
@@ -65,10 +66,10 @@ class FPGAData:
 
         # Custom Word
         if ctrl == 0xc:
-            print("Elaborated %s" % CustomWord(self))
             return CustomWord(self)
 
         # Chip data
+        FPGAData.packets_count += 1
         return ChipData(self, sequence)
 
     @staticmethod

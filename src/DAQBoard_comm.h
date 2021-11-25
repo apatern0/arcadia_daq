@@ -236,6 +236,7 @@ public:
 	// HW FIFO Management
 	uint32_t fifo_overflow_count();
 	uint32_t fifo_idle_count();
+	void fifo_overflow_counter_reset();
 
 	// SW FIFO Management
 	void packets_reset();

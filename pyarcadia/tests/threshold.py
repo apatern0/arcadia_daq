@@ -5,7 +5,7 @@ import scipy.optimize
 import scipy.special
 from matplotlib import pyplot as plt, cm, colors
 
-from ..data import CustomWord, Pixel
+from ..data import CustomWord, Pixel, FPGAData
 from .scan import ScanTest
 
 class ThresholdScan(ScanTest):
@@ -18,19 +18,27 @@ class ThresholdScan(ScanTest):
     tp_on = 10
     tp_off = 10
 
+    packets_count = 0
+
     def __init__(self, log=False):
         super().__init__()
 
         self.log = log
-
-        self.ctrl_phases = [self.ctrl_phase0, self.ctrl_phase1, self.ctrl_phase2, self.ctrl_phase3]
-        self.elab_phases = [self.elab_phase0, self.elab_phase1, self.elab_phase2, self.elab_phase3]
 
         self.title = 'Threshold Scan'
         self.xlabel = 'VCASN (#)'
         self.ylabel = 'Hits (#)'
 
         self.maxwait = 2
+        self.range = range(0, 64)
+
+        self.phases = {
+            0xDEAFABBA : [self.ctrl_phase0, self.elab_phase0],
+            0xBEEFBEEF : [self.ctrl_phase1, self.elab_phase1],
+            0xDEADBEEF : [self.ctrl_phase2, self.elab_phase2],
+            0xBEEFDEAD : [self.ctrl_phase3, self.elab_phase3],
+            0xCAFECAFE : [self.ctrl_phase4, self.elab_phase4]
+        }
 
     def pre_main(self):
         super().pre_main()
@@ -41,6 +49,7 @@ class ThresholdScan(ScanTest):
         self.chip.injection_enable(0xffff)
 
         self.chip.packets_reset()
+        self.sequence.autoread_start()
         self.chip.send_tp(1, self.tp_on, self.tp_off)
         self.chip.packets_idle_wait()
         self.chip.custom_word(0xDEADDEAD)
@@ -75,14 +84,24 @@ class ThresholdScan(ScanTest):
         if counter == 0:
             raise ValueError("No pixels have been selected!")
 
-        max_per_sec = max(per_sec)
+        ts_tp = test.get_tps()[0].ts
+        ts_data = test.get_data()[-1].ts_fpga
+        print("Total measured readout time is %d us" % ((ts_data - ts_tp)*self.chip.ts_us))
+    
         packet_time = (2**self.chip.read_gcrpar('READOUT_CLK_DIVIDER'))*20/self.fpga.clock_hz
-        max_wait = max(packet_time, (self.tp_on+self.tp_off)*1E-6)
-        self.maxtime = max_per_sec * max_wait * self.injections
-        print("Expecting a maximum of %d packets per section. Max readout time should be: %d us" % (max_per_sec, self.maxtime*1E6))
+        injection_time = (self.tp_on+self.tp_off)*1E-6
 
-        self.range = range(0, 64)
+        self.maxtime = max(packet_time, injection_time) * max(per_sec) * self.injections
+
+        print("Expecting a maximum of %d packets per section. Max readout time should be: %d us" % (max(per_sec), self.maxtime*1E6))
+
         print("Changing biases on sections: %s" % self.sections)
+
+        FPGAData.packets_count = 0
+        self.chip.fifo_overflow_counter_reset()
+
+    def post_main(self):
+        self.autostart = False
 
     def ctrl_phase0(self, iteration):
         for section in self.sections:
@@ -90,54 +109,44 @@ class ThresholdScan(ScanTest):
             self.chip.write_gcrpar('BIAS%1d_VCASN' % section, iteration)
 
         self.chip.custom_word(0xDEAFABBA, iteration)
+
+    def ctrl_phase1(self, iteration):
         self.chip.read_enable(self.sections)
         self.chip.injection_digital(self.sections)
         self.chip.send_tp(2, self.tp_on, self.tp_off)
-        self.chip.packets_idle_wait(start=0.1, timeout=self.maxtime)
+        self.chip.packets_idle_wait(expected=self.maxtime, timeout=10*self.maxtime)
         self.chip.custom_word(0xBEEFBEEF, iteration)
 
-    def ctrl_phase1(self, iteration):
+    def ctrl_phase2(self, iteration):
         self.chip.injection_analog(self.sections)
         self.chip.read_enable(self.sections)
         self.chip.send_tp(self.injections, self.tp_on, self.tp_off)
-        self.chip.packets_idle_wait(start=0.1, timeout=3*self.maxtime)
+        self.chip.packets_idle_wait(expected=self.maxtime, timeout=10*self.maxtime)
         self.chip.custom_word(0xDEADBEEF, iteration)
-
-    def ctrl_phase2(self, iteration):
-        self.chip.read_enable(self.sections)
-        self.chip.packets_idle_wait(start=0.1, timeout=3*self.maxtime)
-        self.chip.custom_word(0xBEEFDEAD, iteration)
 
     def ctrl_phase3(self, iteration):
         self.chip.read_enable(self.sections)
-        for i in range(0,self.injections):
+        time.sleep(1E-3)
+        self.chip.read_disable()
+        self.chip.packets_idle_wait(expected=self.maxtime, timeout=10*self.maxtime)
+        self.chip.custom_word(0xBEEFDEAD, iteration)
+
+    def ctrl_phase4(self, iteration):
+        self.chip.read_enable(self.sections)
+        for _ in range(self.injections):
             self.chip.injection_analog(self.sections)
             self.chip.injection_digital(self.sections)
 
-        self.chip.packets_idle_wait(start=0.1, timeout=0.5)
+        self.chip.packets_idle_wait(timeout=0.5)
         self.chip.custom_word(0xCAFECAFE, iteration)
 
-    def elab_phase0(self, iteration):
-        # Start of test
-        start = self.sequence.pop(0, log=self.log)
+    def elab_phase0(self, subseq):
+        pass
 
-        # If readout is complete, exit
-        if start[-1] != CustomWord(message=0xDEAFABBA):
-            start.dump()
-            raise RuntimeError("Unable to locate 0xDEAFABBA packet")
-
-        th = start[-1].payload
-
-        # Check Digital injections
-        dig_injs = self.sequence.pop(0, log=self.log)
-
-        # If readout is complete, exit
-        if dig_injs[-1] != CustomWord(message=0xBEEFBEEF):
-            dig_injs.dump()
-            raise RuntimeError("Unable to locate 0xBEEFBEEF packet")
-
-        dig_injs_data = dig_injs.get_data()
-        dig_injs_tps = dig_injs.get_tps()
+    def elab_phase1(self, subseq):
+        dig_injs_data = subseq.get_data()
+        self.packets_count += len(dig_injs_data)
+        dig_injs_tps = subseq.get_tps()
 
         tps = len(dig_injs_tps)
 
@@ -145,24 +154,21 @@ class ThresholdScan(ScanTest):
             packets = list(filter(lambda x : x.sec == section, dig_injs_data))
 
             if len(packets) < tps:
-                self.logger.warning("Section %d returned %d tps instead of %d" % (section, len(packets), tps))
+                self.logger.warning("Section %d returned %d tps instead of %d", section, len(packets), tps)
 
-    def elab_phase1(self, iteration):
-        # Analog hits
-        analog_hits = self.sequence.pop(0, log=self.log)
-
-        # If readout is complete, exit
-        if analog_hits[-1] != CustomWord(message=0xDEADBEEF):
-            analog_hits.dump()
-            raise RuntimeError("Unable to locate 0xDEADBEEF packet")
-
-        analog_hits_tps = analog_hits.get_tps()
-        th = analog_hits[-1].payload
-
+    def elab_phase2(self, subseq):
+        analog_hits_tps = subseq.get_tps()
         tps = len(analog_hits_tps)
+        th = subseq[-1].payload
+        data = subseq.get_data()
 
-        analog_hits.filter_double_injections()
-        for packet in analog_hits.get_data():
+        for pixel in self.pixels:
+            self.pixels[pixel].injected_fe_hits[th] = 0
+            self.pixels[pixel].injected_hits[th] = 0
+
+        self.packets_count += len(data)
+        subseq.filter_double_injections()
+        for packet in data:
             for pix in packet.get_pixels():
                 if (pix.row, pix.col) not in self.pixels:
                     self.logger.info("Unexpected pixel in this run: %s", pix)
@@ -172,17 +178,13 @@ class ThresholdScan(ScanTest):
                     else:
                         self.pixels[(pix.row, pix.col)].injected_hits[th] += 1
 
-    def elab_phase2(self, iteration):
-        # Check Noise hits
-        noisy_hits = self.sequence.pop(0, log=self.log)
+    def elab_phase3(self, subseq):
+        noisy_hits_data = subseq.get_data()
+        self.packets_count += len(noisy_hits_data)
+        th = subseq[-1].payload
 
-        # If readout is complete, exit
-        if noisy_hits[-1] != CustomWord(message=0xBEEFDEAD):
-            noisy_hits.dump()
-            raise RuntimeError("Unable to locate 0xBEEFDEAD packet")
-
-        noisy_hits_data = noisy_hits.get_data()
-        th = noisy_hits[-1].payload
+        for pixel in self.pixels:
+            self.pixels[pixel].noise_hits[th] = 0
 
         for p in noisy_hits_data:
             for pix in p.get_pixels():
@@ -191,24 +193,20 @@ class ThresholdScan(ScanTest):
                 except KeyError:
                     self.logger.info("Unexpected pixel in this run: %s", pix)
 
-    def elab_phase3(self, iteration):
-        # Check Noise hits
-        noisy_hits = self.sequence.pop(0, log=self.log)
+    def elab_phase4(self, subseq):
+        noisy_hits_data = subseq.get_data()
+        self.packets_count += len(noisy_hits_data)
+        th = subseq[-1].payload
 
-        # If readout is complete, exit
-        if noisy_hits[-1] != CustomWord(message=0xCAFECAFE):
-            noisy_hits.dump()
-            raise RuntimeError("Unable to locate 0xCAFECAFE packet")
-
-        noisy_hits_data = noisy_hits.get_data()
-        th = noisy_hits[-1].payload
+        for pixel in self.pixels:
+            self.pixels[pixel].saturation_hits[th] = 0
 
         for p in noisy_hits_data:
             for pix in p.get_pixels():
                 try:
                     self.pixels[(pix.row, pix.col)].saturation_hits[th] += 1
                 except KeyError:
-                    self.logger.warning("Unexpected pixel in this run: %s" % pix)
+                    self.logger.warning("Unexpected pixel in this run: %s", pix)
 
     @staticmethod
     def _fit(x, mu, sigma):
@@ -216,7 +214,14 @@ class ThresholdScan(ScanTest):
 
     @staticmethod
     def find_baseline(x, y):
-        return x[y.index(max(y))]
+        #return x[y.index(max(y))]
+
+        avg = 0
+        for index, counts in enumerate(y):
+            avg += x[index] * counts
+
+        avg = avg/sum(x)
+        return avg
 
     def scurve_fit(self, pixels=None):
         if pixels is None:
@@ -238,7 +243,7 @@ class ThresholdScan(ScanTest):
             vcal_lo = self.gcrs['BIAS{}_VCAL_LO'.format(pixel.get_sec())]
             q_in = ((595+35*vcal_hi)-(560*vcal_lo))*1.1625/1000
 
-            pixel.baseline = self.find_baseline(self.range, pixel.noise_hits) # VCASN
+            pixel.baseline = 5*self.find_baseline(self.range, pixel.noise_hits) # mV
             pixel.gain = 5*(pixel.baseline - s_opt[0])/q_in # mV/fC
             pixel.noise = 5*s_opt[1] # mV
 
@@ -320,8 +325,9 @@ class ThresholdScan(ScanTest):
         self.plot_heatmap(show=show, saveas=saveas, title='Noise map', notes=notes, hm=hm_noise)
 
         plt.figure()
-        plt.plot(range(len(gains)), gains)
-        plt.plot(range(len(noises)), noises)
+        plt.plot(range(len(gains)), gains, '-bo', label="Gain")
+        ax = plt.plot(range(len(noises)), noises, '-ro', label="Noise")
+        ax.set(xlabel="Pixel", ylabel="mV o mV/fC", title="Extracted data")
 
     def serialize(self):
         listed = []
