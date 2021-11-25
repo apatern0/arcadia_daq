@@ -233,6 +233,10 @@ public:
 
 	int write_icr(std::string icr_reg, uint16_t data);
 
+	// HW FIFO Management
+	uint32_t fifo_overflow_count();
+	uint32_t fifo_idle_count();
+
 	// SW FIFO Management
 	void packets_reset();
 	void packets_read_start();

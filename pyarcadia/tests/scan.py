@@ -1,9 +1,8 @@
 import time
 import threading
-import numpy as np
 from tqdm import tqdm
 
-from ..test import Test, customplot
+from ..test import Test
 
 class ParallelAnalysis(threading.Thread):
     test = None
@@ -24,7 +23,6 @@ class ParallelAnalysis(threading.Thread):
             self.test.elab_iteration = i
 
         self.test.chip.packets_read_stop()
-
 
 class ScanTest(Test):
     range = []
@@ -109,7 +107,3 @@ class ScanTest(Test):
 
     def __init__(self):
         super().__init__()
-
-    @customplot(('X', 'Y'), 'Title')
-    def plot(self, show=True, saveas=None, ax=None):
-        ax.plot(self.range, self.result, '-o')

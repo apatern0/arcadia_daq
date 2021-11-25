@@ -65,6 +65,7 @@ class FPGAData:
 
         # Custom Word
         if ctrl == 0xc:
+            print("Elaborated %s" % CustomWord(self))
             return CustomWord(self)
 
         # Chip data
@@ -199,6 +200,8 @@ class ChipData:
         else:
             self.ts_sw = self.sequence.ts_sw
 
+        self.tag = None
+
         if self.fpga_packet is None:
             self.bottom  = None
             self.hitmap  = None
@@ -237,7 +240,10 @@ class ChipData:
         """Extends the timestamp of the data packet by using the timestamp on the FPGA
         """
         ts_fpga_msb = (self.ts_fpga & 0xffff00)
-        ts_fpga_lsb = (self.ts_fpga & 0xff)
+
+        # Account for LSB uncertainty
+        ts_fpga_lsb = ((self.ts_fpga+1) & 0xff)
+
         if self.ts > ts_fpga_lsb:
             ts_fpga_msb = (ts_fpga_msb-0x100)
 
@@ -295,6 +301,9 @@ class TestPulse:
 
         packet_bytes = self.fpga_packet.to_bytes()
         self.ts = (packet_bytes[2] << 16) | (packet_bytes[1] << 8) | packet_bytes[0]
+        self.extend_timestamp()
+
+    def extend_timestamp(self):
         self.ts_ext = (self.ts_sw << 24) | self.ts
 
     def __str__(self):
@@ -307,7 +316,7 @@ class CustomWord:
     :param FPGAData fpga_packet: 64-bit data from the FPGA
     """
     fpga_packet: FPGAData = None
-    message: int = None
+    message: int = 0
     payload: int = None
 
     def __post_init__(self):
@@ -334,4 +343,6 @@ class CustomWord:
         return True
 
     def __str__(self):
-        return "%s -     MSG : 0x%x - PAYLOAD : 0x%x" % (self.fpga_packet.to_hex(), self.message, self.payload)
+        fpga_hex = 0 if not isinstance(self.fpga_packet, FPGAData) else self.fpga_packet.to_hex()
+        payload = self.payload if self.payload is not None else 0
+        return "%s -     MSG : 0x%x - PAYLOAD : 0x%x" % (fpga_hex, self.message, payload)

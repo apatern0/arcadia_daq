@@ -1,4 +1,5 @@
 import logging
+from pyarcadia.data import ChipData, TestPulse
 from pyarcadia.tests.threshold import ThresholdScan
 
 x = ThresholdScan()
@@ -8,7 +9,13 @@ x.logger.setLevel(logging.WARNING)
 x.initialize()
 
 x.chip.pixels_mask()
-x.chip.pixels_cfg(0b01, 0x1111, [0], [0], [0], 0x0001)
+x.chip.pixels_cfg(0b01, 0xffff, [0], [0], [0], 0x0001)
+
+for i in range(16):
+    x.chip.write_gcrpar('BIAS{}_VCAL_LO'.format(i), 0)
+    x.chip.write_gcrpar('BIAS{}_VCAL_HI'.format(i), 15)
 
 x.run()
-x.plot(False, 'results/injection')
+
+x.plot(True, 'results/threshold')
+x.save()

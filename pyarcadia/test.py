@@ -14,66 +14,6 @@ from .daq import Fpga, onecold
 from .sequence import Sequence, SubSequence
 from .data import ChipData, TestPulse
 
-def customplot(axes, title):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args, **kwargs):
-            if 'show' in kwargs:
-                show = kwargs['show']
-            elif len(args) > 1:
-                show = args[1]
-            else:
-                show = False
-
-            if 'saveas' in kwargs:
-                saveas = kwargs['saveas']
-            elif len(args) > 2:
-                saveas = args[2]
-            else:
-                saveas = None
-
-            if not show and saveas is None:
-                raise ValueError('Either show or save the plot!')
-
-            fig, ax = plt.subplots()
-
-            image = f(*args, **kwargs, ax=ax)
-
-            ax.set(xlabel=axes[0], ylabel=axes[1], title=title)
-            ax.margins(0)
-
-            if isinstance(image, list):
-                image = image.pop(0)
-
-            if isinstance(image, matplotlib.lines.Line2D):
-                ax.legend()
-                ax.grid()
-            elif isinstance(image, matplotlib.image.AxesImage):
-                plt.colorbar(image, orientation='horizontal')
-
-            if saveas is not None:
-                filename = saveas+".pdf"
-                if os.path.exists(filename):
-                    i = 1
-                    while True:
-                        filename = saveas + ("_%d" % i) + ".pdf"
-                        if not os.path.exists(filename):
-                            break
-
-                        i += 1
-
-                fig.savefig(filename, bbox_inches='tight')
-
-            if show:
-                matplotlib.interactive(True)
-                plt.show()
-            else:
-                matplotlib.interactive(False)
-                plt.close(fig)
-
-        return wrapper
-    return decorator
-
 class Test:
     """Test generator class. Contains helper functions and initialization
     methods to prep the chip for testing. The class also provides methods
@@ -93,17 +33,16 @@ class Test:
         self.sequence = Sequence(chip=self.chip, autoread=True)
         self.logger = logging.getLogger(__name__)
 
+        self.title = ''
+        self.xlabel = ''
+        self.ylabel = ''
+
         # Load configuration
         self.load_cfg()
 
         # Initialize Chip
         self.fpga.init_connection()
         self.chip.logger = self.logger
-        if 'lanes_masked' in self.chip.cfg:
-            stm = self.chip.cfg['lanes_masked'].split(",")
-            print("Masking sections: %s" % str(stm))
-            stm = [int(x) for x in stm]
-            self.chip.lanes_masked = stm
 
         # Initialize Logger
         ch = logging.StreamHandler()
@@ -131,6 +70,12 @@ class Test:
 
         self.chip.cfg = config[this_chip]
 
+        if 'lanes_masked' in self.chip.cfg:
+            stm = self.chip.cfg['lanes_masked'].split(",")
+            print("Masking sections: %s" % str(stm))
+            stm = [int(x) for x in stm]
+            self.chip.lanes_masked = stm
+
     def set_timestamp_resolution(self, res_s):
         """Configures the timestamp resolution on both the chip and the FPGA.
         
@@ -149,7 +94,7 @@ class Test:
         fpga_clock_divider = math.floor(fpga_clock_divider)
         self.logger.info('Fpga clock divider: %d' % fpga_clock_divider)
 
-        self.chip.ts_us = res_s/1E6
+        self.chip.ts_us = res_s*1E6
 
         self.chip.write_gcrpar('TIMING_CLK_DIVIDER', chip_clock_divider)
         self.chip.set_timestamp_period(fpga_clock_divider)
@@ -184,10 +129,10 @@ class Test:
         self.chip.normal_mode()
         self.chip.enable_readout(synced)
 
-        print("Synchronized lanes:", end=''); print(synced)
+        print("Synchronized lanes: %s" % synced)
 
         return synced
-        
+
     def check_stability(self, trials=8):
         """Ensures that the lanes are stable. Assumes that no data
         are being sent from the chip, and checks that no data is
@@ -226,7 +171,7 @@ class Test:
         iteration = 0
 
         for iteration in range(iterations):
-            print(f"Synchronization iteration {iteration}/{iterations}...")
+            print(f"Stabilization trial {iteration}/{iterations}...")
 
             for _ in range(iterations):
                 if sync_not_calibrate:
@@ -327,13 +272,16 @@ class Test:
         if iteration > iterations:
             raise RuntimeError('Unable to mask noisy lanes. Aborting.')
 
+        self.lanes_excluded = list(set(self.chip.lanes_masked + lanes_dead + lanes_invalid + lanes_noisy + lanes_unsync))
+        if self.lanes_excluded == list(range(16)):
+            raise RuntimeError('All the lanes are masked! Unable to proceed!')
+
         if len(lanes_dead) != 0:
             print('Tests will proceed with the following dead lanes: %s' % lanes_dead)
 
         if len(lanes_invalid) != 0:
             print('Marking as dead the lanes that couldn\'t be stabilized: %s' % lanes_invalid)
 
-        self.lanes_excluded = list(set(self.chip.lanes_masked + lanes_dead + lanes_invalid + lanes_noisy + lanes_unsync))
         self.chip.lanes_masked = self.lanes_excluded
         self.chip.enable_readout(0xffff)
 
@@ -402,14 +350,18 @@ class Test:
         if ts_delta != 0:
             self.logger.warning("Timestamp alignment failed: FPGA: %x CHIP: %x DELTA: %x", ts_fpga, ts_chip, ts_delta)
 
-    def initialize(self, sync_not_calibrate=True, auto_read=True, iterations=5):
+    def initialize(self, sync_not_calibrate=True, auto_read=True, iterations=1):
         """Perform default test and chip initialization routines.
 
         :param bool sync_not_calibrate: Avoid to perform lanes calibration
         :param bool auto_read: Enable automatic packet readout from the FPGA
         """
+
+        saved_masked = self.chip.lanes_masked
+
         for i in range(4):
             ok = True
+            self.chip.lanes_masked = saved_masked
 
             # Initialize chip
             lanes_synced = self.chip_init()
@@ -452,8 +404,10 @@ class Test:
     def _filename(saveas):
         if os.path.exists(saveas):
             split = saveas.split('.')
-            saveas = split[:-1]
-            ext = split[-1]
+            ext = ""
+            if len(split) > 1:
+                saveas = "".join(split[:-1])
+                ext = split[-1]
 
             i = 1
             while True:
@@ -501,29 +455,32 @@ class Test:
                 os.mkdir(folder)
 
             # Get run idx
-            files = [f for f in os.listdir(folder)]
-            last_idx = 0
+            files = os.listdir(folder)
+            last_idx = -1
             for filename in files:
                 if not os.path.isfile(os.path.join(folder, filename)):
                     continue
-                
-                if not os.path.join(folder, filename).startswith("run__"):
+
+                if not filename.startswith("run__"):
                     continue
 
-                nextunder = filename[5:].index("_")
-                if nextunder <= 0:
+                try:
+                    nextunder = filename[5:].index("_")
+                except ValueError:
                     continue
 
-                idx = int(filename[5:nextunder])
+                idx = int(filename[5:(5+nextunder)])
                 if idx > last_idx:
                     last_idx = idx
 
             idx = last_idx+1
 
-        time = datetime.datetime.now().strftime("%H_%M_%S")
-        saveas = os.path.join(folder, "run__" + str(idx) + "__" + time + ".json")
+            time = datetime.datetime.now().strftime("%H_%M_%S")
+            saveas = os.path.join(folder, "run__" + str(idx) + "__" + time + ".json")
 
         json.dump(listed, codecs.open(self._filename(saveas), 'w', encoding='utf-8'), separators=(',', ':'), sort_keys=True, indent=4)
+
+        print("Test results and configuration saved in:\n%s" % saveas)
 
     def load(self, filename):
         """Loads the GCR configuration and test results from a file.
@@ -539,3 +496,61 @@ class Test:
             self.gcrs = contents.pop(0)
 
             self.deserialize(contents)
+
+    def _plot_points(self, fig, ax, **kwargs):
+        raise NotImplementedError()
+
+    def _plot_heatmap(self, fig, ax, **kwargs):
+        raise NotImplementedError()
+
+    def plot(self, show=True, saveas=None, notes=None):
+        raise NotImplementedError()
+
+    def _plot_footer(self, fig, ax, show, saveas, title, notes):
+        title = self.title + (title if title is not None else '')
+
+        ax.set(xlabel=self.xlabel, ylabel=self.ylabel, title=title)
+        ax.margins(0)
+
+        if notes is not None:
+            #plt.figtext(0.5, 0.01, notes, ha="center", fontsize=10)
+            ax.annotate(notes, xy = (0.5, -0.2), xycoords='axes fraction', ha='center', va='top', fontsize=12, annotation_clip=False)
+
+            fig.texts.append(ax.texts.pop())
+
+        fig.tight_layout()
+
+        if saveas is not None:
+            fig.savefig(self._filename(saveas+'.pdf'), bbox_inches='tight')
+
+        if show:
+            matplotlib.interactive(True)
+            plt.show()
+        else:
+            matplotlib.interactive(False)
+            plt.close(fig)
+
+    def plot_heatmap(self, show=True, saveas=None, title=None, notes=None, **kwargs):
+        if not show and saveas is None:
+            raise ValueError('Either show or save the plot!')
+
+        fig, ax = plt.subplots()
+
+        image = self._plot_heatmap(fig, ax, **kwargs)
+
+        plt.colorbar(image, orientation='horizontal')
+
+        self._plot_footer(fig, ax, show, saveas, title, notes)
+
+    def plot_points(self, show=True, saveas=None, title=None, notes=None, **kwargs):
+        if not show and saveas is None:
+            raise ValueError('Either show or save the plot!')
+
+        fig, ax = plt.subplots()
+
+        self._plot_points(fig, ax, **kwargs)
+
+        ax.legend()
+        ax.grid()
+
+        self._plot_footer(fig, ax, show, saveas, title, notes)

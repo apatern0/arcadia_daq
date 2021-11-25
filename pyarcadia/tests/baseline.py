@@ -3,7 +3,6 @@ import numpy as np
 import math
 import time
 
-from ..test import customplot
 from ..data import ChipData, CustomWord, TestPulse
 from ..sequence import Sequence
 from .scan import ScanTest
@@ -19,6 +18,10 @@ class BaselineScan(ScanTest):
         self.sections = [x for x in range(16) if x not in self.lanes_excluded]
         self.result = np.full((512, 512), np.nan)
         self.sequence.timeout = 10
+
+        self.title = 'Baseline distribution'
+        self.xlabel = 'Row (#)'
+        self.ylabel = 'Col (#)'
 
         self.ctrl_phases = [self.ctrl_phase0, self.ctrl_phase1]
         self.elab_phases = [self.elab_phase0, self.elab_phase1]
@@ -72,7 +75,8 @@ class BaselineScan(ScanTest):
             self.chip.injection_analog(self.sections)
             self.chip.injection_digital(self.sections)
 
-        time.sleep(0.2)
+        self.chip.packets_idle_wait()
+
         self.chip.read_disable(self.sections)
 
     def elab_phase1(self, iteration):
@@ -156,17 +160,11 @@ class BaselineScan(ScanTest):
         with tqdm(total=total, desc='Masked pixels') as self.pbar:
             super().loop_reactive()
 
-    @customplot(('Row (#)', 'Col (#)'), 'Baseline distribution')
-    def plot(self, show=True, saveas=None, ax=None):
-        image = ax.imshow(self.result, interpolation='none')
+    def _plot_heatmap(self, fig, ax, **kwargs):
+        return ax.imshow(self.result, interpolation='none')
 
-        """
-        for i in range(64):
-            for j in range(16):
-                text = ax.text(i, j, self.result[j][i],
-                       ha="center", va="center", color="w")
-        """
-        return image
+    def plot(self, show=True, saveas=None):
+        self.plot_heatmap(show=show, saveas=saveas)
 
     def serialize(self):
         return self.result.tolist()

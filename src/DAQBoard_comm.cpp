@@ -442,6 +442,24 @@ uint32_t ChipIf::fifo_count() {
 	return (uint32_t) occupancy/2;
 }
 
+uint32_t ChipIf::fifo_overflow_count() {
+	const uhal::Node& Node_fifo_fullcounter = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".full_counter");
+	uhal::ValWord<uint32_t> fifo_fullcounter = Node_fifo_fullcounter.read();
+	fpga->lHW.dispatch();
+	uint32_t full_counter = fifo_fullcounter.value();
+	
+	return full_counter;
+}
+
+uint32_t ChipIf::fifo_idle_count() {
+	const uhal::Node& Node_fifo_idlecounter = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".counter_timelike");
+	uhal::ValWord<uint32_t> fifo_idlecounter = Node_fifo_idlecounter.read();
+	fpga->lHW.dispatch();
+	uint32_t idlecounter = fifo_idlecounter.value();
+	
+	return idlecounter;
+}
+
 int ChipIf::fifo_reset() {
 	if (run_flag){
 		std::cerr << "DAQ Thread running, refusing to reset fifo" << std::endl;

@@ -1,7 +1,12 @@
 import time
 import math
+import bisect
 from threading import Thread
 from tabulate import tabulate
+"""
+from tqdm import tqdm
+print = tqdm.write
+"""
 
 from .daq import Chip
 from .data import ChipData, TestPulse, CustomWord
@@ -62,7 +67,7 @@ class SubSequence:
         with a CustomWord, otherwise False
         :rtype: bool
         """
-        return isinstance(self._queue[-1], CustomWord)
+        return len(self._queue) > 0 and isinstance(self._queue[-1], CustomWord)
 
     def append(self, data):
         """Appends a new packet to the SubSequence
@@ -130,7 +135,7 @@ class SubSequence:
             for i in range(threads):
                 results.append([])
                 start = i*per_thread
-                stop = lendata if i == threads-1 else (i+1)*per_thread-1
+                stop = lendata if i == threads-1 else (i+1)*per_thread
                 workers.append(Thread(target=worker, args=(data[start:stop], results[i])))
                 workers[i].start()
 
@@ -166,21 +171,19 @@ class SubSequence:
         :returns: The popped element
         :rtype: ChipData|TestPulse|CustomWord
         """
-        try:
-            return self._queue.pop(item)
-        except IndexError:
-            if self.parent is not None and self.parent.autoread:
+
+        if self.parent is not None and self.parent.autoread:
+            while item >= len(self._queue) or not self._queue[item].is_complete():
                 self.parent.read_more()
 
-            return self._queue.pop(item)
+        return self._queue.pop(item)
 
-    def filter_double_injections(self, t_on=500, fe_tol=1, tp_tol=5):
+    def filter_double_injections(self, us_on=10, fe_ntol=4, fe_ptol=4, tp_ntol=4, tp_ptol=1):
         """Filters spurious injections due to the falling edge of the
         Test Pulse coupling with the injection circuitry in the FEs.
 
         :param int t_off: Delta of the TP falling edge w.r.t. the rising
         """
-
         if self.parent is None:
             raise RuntimeError("The SubSequence doesn't have a valid parent Sequence. Unable to continue")
 
@@ -188,31 +191,75 @@ class SubSequence:
             raise RuntimeError("The Sequence doesn't have a valid linked Chip. Unable to continue")
 
         # t_on is in FPGA CCs. Translate into timestamp counts
-        ts_delta = int((t_on/self.parent.chip.fpga.clock_hz)*1E-6/self.parent.chip.ts_us)
+        ts_delta = int(us_on/self.parent.chip.ts_us)
 
-        tps = self.get_tps()
-        parsed = []
-        ambiguous = 0
-        for packet in self.get_data():
-            # Check whether it corresponds to a Test Pulse
-            found_tp = [x for x in tps if 0 <= packet.ts_ext - x.ts_ext <= tp_tol]
+        t0 = time.time()
+        tps = [tp.ts_ext for tp in self.get_tps()]
+        data = [data for data in self.get_data()]
+        print("Sorting took {}".format(time.time()-t0)); t0=time.time()
 
-            if len(found_tp) > 0:
-                parsed.append(packet)
+        # Parallel analysis
+        def split_packets(data, data_ser):
+            for packet in data:
+                data_ser[packet.ser].append(packet)
 
-            # Check whether there is an already parsed packet which matches
-            ts_est = packet.ts_ext - ts_delta
-            found_fe = [x for x in parsed if -fe_tol <= ts_est - x.ts_ext <= fe_tol]
+        data_ser = [[] for i in range(16)]
+        if len(data) > 1000:
+            per_thread = 600
+            workers = []
+            threads = math.floor(len(data)/per_thread)
 
-            if len(found_fe) == 0:
-                if len(found_tp) > 0:
-                    ambiguous += 1
-                else:
-                    parsed.append(packet)
-            else:
-                print("Filtered packet:\n%s\nBecause it's similar to:\n%s" % (packet, found_fe))
+            for thread in range(threads):
+                ub = min(((thread+1)*per_thread), len(data))
+                t = Thread(target=split_packets, args=(data[thread*600:ub], data_ser, ))
+                t.start()
+                workers.append(t)
 
-        return (parsed, ambiguous)
+            for t in range(threads):
+                workers[t].join()
+
+        else:
+            split_packets(data, data_ser)
+
+        print("Splitting took {}".format(time.time()-t0)); t0=time.time()
+
+        # Parallel analysis
+        def parse_packets(tps, data):
+            parsed = []
+            for packet in data:
+                # Check whether it corresponds to a Test Pulse
+                found_tp = bisect.bisect_left(tps, packet.ts_ext - 5 - tp_ntol)
+                found_tp = found_tp != len(tps) and tps[found_tp] <= packet.ts_ext - 5 + tp_ptol
+
+                # Check whether there is an already parsed packet which matches
+                found_re = bisect.bisect_left(parsed, packet.ts_ext - ts_delta - fe_ntol)
+                found_re = found_re != len(parsed) and parsed[found_re] <= packet.ts_ext - ts_delta + fe_ptol
+
+                if not found_re and not found_tp:
+                    packet.tag = 'isolated'
+
+                elif found_re and not found_tp:
+                    packet.tag = 'falling edge'
+
+                elif not found_re and found_tp:
+                    packet.tag = 'rising edge'
+                    parsed.append(packet.ts_ext)
+
+                elif found_re and found_tp:
+                    packet.tag = 'ambiguous'
+                    parsed.append(packet.ts_ext)
+
+        for ser in range(16):
+            threads = []
+
+            t = Thread(target=parse_packets, args=(tps, data_ser[ser]))
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join()
+
+        print("Parsing took {}".format(time.time()-t0)); t0=time.time()
 
     def dump(self, limit=0, start=0):
         """Prints a dump of the packets contained in the SubSequence.
@@ -264,8 +311,43 @@ class Sequence:
         self._queue = []
         self._popped = []
 
-        if packets is not None:
+        if packets is None:
+            return
+
+        self.elaborate_auto(packets)
+
+    def elaborate_auto(self, packets):
+        t0 = time.time()
+        if len(packets) < 600:
             self.elaborate(packets)
+        else:
+            self.elaborate_parallel(packets)
+        print("Elaboration took {}".format(time.time()-t0)); t0=time.time()
+
+    def elaborate_parallel(self, packets):
+        t0=time.time()
+        per_thread = 500
+        threads = math.floor(len(packets)/per_thread)
+        if threads > 8:
+            threads = 8
+            per_thread = math.ceil(len(packets)/8)
+
+        workers = []
+        sequences = [Sequence() for _ in range(threads)]
+        for i in range(threads):
+            stop = len(packets) if i == threads-1 else (i+1)*per_thread
+            thread = Thread(target=sequences[i].elaborate, args=(packets[i*per_thread:stop], ))
+            thread.start()
+            workers.append(thread)
+            print("----------Started thread %d out of %d" % (i, threads))
+
+        print("----------WAITING FOR THEAD STO FINISCH")
+        for i in range(threads):
+            workers[i].join(timeout=5)
+            self.extend(sequences[i])
+            print("----------Extended thread %d out of %d. Alive? %s" % (i, threads, workers[i].is_alive()))
+
+        print("Parallel result extensnio took {}".format(time.time()-t0)); t0=time.time()
 
     def __getitem__(self, item):
         try:
@@ -279,7 +361,7 @@ class Sequence:
     def __len__(self):
         return len(self._queue)
 
-    def pop(self, item=-1, timeout=50, log=False):
+    def pop(self, item=-1, idle_start_timeout=10, idle_stop_timeout=None, log=False):
         """Pops an element from the queue, fetches more packets
         if autoread is enabled
         :param int item: Index of the element to pop
@@ -288,22 +370,8 @@ class Sequence:
         :rtype: SubSequence
         """
         if self.autoread:
-            for tried in range(timeout):
-                if item >= len(self._queue):
-                    self.read_more(1)
-                    continue
-
-                if not self._queue[item].is_complete():
-                    try:
-                        self.read_more(1)
-                    except StopIteration:
-                        pass
-
-                    continue
-
-                break
-
-        print("Complete: %s" % self._queue[item].is_complete())
+            while item >= len(self._queue) or not self._queue[item].is_complete():
+                self.read_more(idle_start_timeout, idle_stop_timeout)
 
         if log:
             self._popped.append(self._queue[item])
@@ -325,13 +393,39 @@ class Sequence:
 
             self._queue[-1].append(elaborated)
 
-    def read_more(self, idle_start_timeout=1):
+    def read_more(self, idle_start_timeout=10, idle_stop_timeout=None):
         """Triggers a readout from the FPGA, and elaborates the data
         """
         if not isinstance(self.chip, Chip):
             raise RuntimeError("This sequence doesn't have a chip handle to use!")
 
-        self.elaborate(self.chip.readout(idle_start_timeout=idle_start_timeout))
+        if idle_start_timeout is not None:
+            for i in range(idle_start_timeout):
+                in_fifo = self.chip.packets_count()
+                if in_fifo == 0:
+                    time.sleep(0.1)
+                    continue
+
+                break
+
+        slept = 0
+        packets = []
+        while True:
+            in_fifo = self.chip.packets_count()
+            if in_fifo == 0 and idle_stop_timeout is not None:
+                if slept < idle_stop_timeout-1:
+                    time.sleep(0.1)
+
+                slept += 1
+                continue
+
+            packets.extend(self.chip.readout())
+            slept = 0
+
+            if idle_stop_timeout is None or slept >= idle_stop_timeout:
+                break
+
+        self.elaborate_auto(packets)
 
     def dump(self, limit=0, start=0):
         """Prints a dump of the packets contained in the SubSequence.
@@ -352,3 +446,65 @@ class Sequence:
 
         print("Dumping %s:" % self)
         print(tabulate(toprint, headers=["#", "Item"]))
+
+    def total_length(self):
+        total = 0
+        for i in self._queue:
+            total += len(i)
+
+        return total
+
+    def extend(self, other):
+        """Extend the current Sequence with another one"""
+        print("%d + %d = ........................................................................." % (self.total_length(), other.total_length()))
+        print("%s Extending sequence..." % self)
+        print("%s loL" % self)
+        for i in self._queue:
+            x = [x for x in i if isinstance(i, CustomWord)]
+            print("%s elab.." % self)
+            for j in x:
+                print(j)
+
+        print("%s loL done" % self)
+
+        print("%s OTHER Having words:" % self, flush=True)
+        for i in other._queue:
+            x = [x for x in i if isinstance(i, CustomWord)]
+            for j in x:
+                print(j, flush=True)
+
+        print("%s kek" % self)
+
+        # Trivial case
+        if len(self._queue) == 0:
+            self._queue = other._queue
+            print("%s this empty" % self)
+
+        elif len(other._queue) == 0:
+            print("%s other empty" % self)
+            return
+
+        # Merge middle subsequences, if necessary
+        if len(self._queue) > 0 and not self._queue[-1].is_complete():
+            print("%s joining" % self)
+            self._queue[-1].extend(other._queue.pop(0))
+
+        # Timestamp adjustment
+        for subsequence in other._queue:
+            subsequence.parent = self
+
+            for packet in subsequence:
+                if isinstance(packet, (TestPulse, ChipData)):
+                    packet.ts_sw += self.ts_sw
+                    packet.extend_timestamp()
+
+        self.ts_sw += other.ts_sw
+
+        self._queue.extend(other._queue)
+        print("%s Should be... %d?" % (self, self.total_length()))
+        print("%s Having words:" % self)
+        for i in self._queue:
+            x = [x for x in i if isinstance(i, CustomWord)]
+            for j in x:
+                print(j)
+        print("%s done" % self)

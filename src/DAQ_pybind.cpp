@@ -136,6 +136,8 @@ PYBIND11_MODULE(arcadia_daq, m) {
 
 		.def("packets_reset", &ChipIf::packets_reset)
 		.def("packets_count", &ChipIf::packets_count)
+		.def("fifo_overflow_count", &ChipIf::fifo_overflow_count)
+		.def("fifo_idle_count", &ChipIf::fifo_idle_count)
 
 		.def("calibrate_deserializers", &ChipIf::calibrate_deserializers);
 

@@ -226,6 +226,38 @@ class Chip:
         """
         return self.__chipif.packets_reset()
 
+    def packets_idle_time(self):
+        """Get the number of microseconds elapsed since data has been written to the FIFO
+
+        :return: Microseconds elapsed
+        :rtype: int
+        """
+        return 4*self.__chipif.fifo_idle_count()/self.fpga.clock_hz
+
+    def packets_idle_wait(self, start=1E-3, step=1E-3, end=1E-3, timeout=None, disable=True):
+        t0 = time.time()
+        time.sleep(start)
+
+        while True:
+            if timeout is not None and time.time() - t0 > timeout:
+                break
+
+            if self.packets_idle_time() > end:
+                break
+
+            time.sleep(step)
+
+        if disable:
+            self.read_disable()
+
+    def packets_lost_count(self):
+        """Get the number of data packets lost due to FPGA FIFO being full
+
+        :return: Number of packets lost
+        :rtype: int
+        """
+        return self.__chipif.fifo_overflow_count()
+
     def packets_count(self):
         """Get the number of available data packets
 
@@ -284,7 +316,7 @@ class Chip:
         self.send_controller_command('loadTSDeltaLSB', ((delta>>0)  & 0xfffff))
         self.send_controller_command('loadTSDeltaMSB', ((delta>>20) & 0xfffff))
 
-    def calibrate_deserializers(self):
+    def calibrate_deserializers(self, verbose=False):
         """Trigger the calibration of the deserializers. The procedure tries
         to select and set the optimal Tap Delays in order to minimize sampling
         errors.
@@ -294,7 +326,7 @@ class Chip:
         """
         self.sync_mode()
         time.sleep(0.01)
-        response = self.__chipif.calibrate_deserializers()
+        response = self.__chipif.calibrate_deserializers(verbose)
         time.sleep(0.01)
         self.normal_mode()
 
@@ -619,7 +651,7 @@ class Chip:
         self.pixels_cfg(0b11, sections, columns, prs, master, pixels)
 
     # Injection
-    def send_tp(self, pulses=1, us_on=1, us_off=1):
+    def send_tp(self, pulses=1, us_on=10, us_off=10):
         """Send a Test Pulse train to the chip.
 
         :param pulses: Number of Test Pulses to send
@@ -639,10 +671,10 @@ class Chip:
         t_off = int(t_off_f)
 
         if t_on != t_on_f:
-            self.logger.warning("Cropping TP t_on from %.3f us to %.3f us", us_on, t_on/self.fpga.clock_hz*1E6)
+            self.logger.info("Cropping TP t_on from %.3f us to %.3f us", us_on, t_on/self.fpga.clock_hz*1E6)
 
         if t_off != t_off_f:
-            self.logger.warning("Cropping TP t_off from %.3f us to %.3f us", us_off, t_off/self.fpga.clock_hz*1E6)
+            self.logger.info("Cropping TP t_off from %.3f us to %.3f us", us_off, t_off/self.fpga.clock_hz*1E6)
 
         if t_on > (1<<20):
             raise ValueError("TP On Time (%d) exceeds maximum value of %d." % (t_on, (1<<20)))
@@ -676,15 +708,5 @@ class Chip:
 
         return lanes
 
-    def readout(self, max_packets=32768, idle_start_timeout=50):
-        for i in range(idle_start_timeout):
-            in_fifo = self.packets_count()
-            if in_fifo != 0:
-                break
-
-            time.sleep(0.1)
-
-        if in_fifo == 0:
-            raise StopIteration("Zero packets in fifo after %.1f seconds" % (idle_start_timeout*0.1))
-
+    def readout(self, max_packets=32768):
         return FPGAData.from_packets(self.packets_read(max_packets))
