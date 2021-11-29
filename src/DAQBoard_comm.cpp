@@ -29,7 +29,7 @@ ChipIf::ChipIf(uint8_t id, FPGAIf* fpga_ptr) {
 	chip_id = id;
 	fpga = fpga_ptr;
 
-	max_packets = 25E6;
+	max_packets = 12.5E6;
 	run_flag = false;
 	daq_timeout = false;
 	spi_unavailable = false;
@@ -320,18 +320,18 @@ int ChipIf::send_pulse(uint32_t t_on, uint32_t t_off, uint32_t tp_number) {
 }
 
 size_t ChipIf::fifo_read(size_t num_packets) {
-	const uhal::Node& Node_fifo_data = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".data");
 	uint32_t packets_fifo = fifo_count();
 
 	if (packets_fifo == 0)
 		return -1;
 
 	if (packets_write->size() > max_packets) {
-		std::cerr << "Currently reached maximum packets. Unable to read " << std::dec << packets_fifo << " packets from FPGA." << std::endl;
-		Node_fifo_data.readBlock(packets_fifo*2);
+		//std::cerr << "Currently reached maximum packets. Unable to read " << std::dec << packets_fifo << " packets from FPGA." << std::endl;
 		sleep(0.1);
 		return -1;
 	}
+
+	const uhal::Node& Node_fifo_data = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".data");
 
 	uint32_t packets_to_read;
 	if(num_packets) {
@@ -410,7 +410,7 @@ void ChipIf::fifo_read_start() {
 	if (run_flag == true)
 		return;
 
-	packets_write->reserve(12.5E6);
+	packets_write->reserve(max_packets/2);
 
 	packets_reset();
 

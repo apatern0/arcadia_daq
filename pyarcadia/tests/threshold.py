@@ -5,6 +5,7 @@ import scipy.optimize
 import scipy.special
 from matplotlib import pyplot as plt, cm, colors
 
+from ..daq import Chip
 from ..data import CustomWord, Pixel, FPGAData
 from .scan import ScanTest
 
@@ -18,19 +19,16 @@ class ThresholdScan(ScanTest):
     tp_on = 10
     tp_off = 10
 
-    packets_count = 0
-
     def __init__(self, log=False):
         super().__init__()
 
+        self.title = 'Threshold Scan'
         self.log = log
 
-        self.title = 'Threshold Scan'
-        self.xlabel = 'VCASN (#)'
-        self.ylabel = 'Hits (#)'
-
-        self.maxwait = 2
+        self.maxtime = 2
         self.range = range(0, 64)
+
+        self.packets_count = 0
 
         self.phases = {
             0xDEAFABBA : [self.ctrl_phase0, self.elab_phase0],
@@ -64,30 +62,32 @@ class ThresholdScan(ScanTest):
 
         per_sec = [0] * 16
 
-        print("Starting scan on the following pixels:")
+        print("Starting scan on the following pixels: [", end="")
         counter = 0
         for packet in test.get_data():
             per_sec[packet.ser] += 1
 
             for p in packet.get_pixels():
-                p.injected_hits = [0] * 64
-                p.injected_fe_hits = [0] * 64
-                p.noise_hits = [0] * 64
-                p.saturation_hits = [0] * 64
+                p.injected_hits = [np.nan for _ in self.range]
+                p.injected_fe_hits = [np.nan for _ in self.range]
+                p.noise_hits = [np.nan for _ in self.range]
+                p.saturation_hits = [np.nan for _ in self.range]
                 self.pixels[(p.row, p.col)] = p
-                print("\t%3d) %s" % (counter, p))
+                print("(%d, %d)" % (p.row, p.col), end="")
                 counter += 1
 
             if packet.sec not in self.sections:
                 self.sections.append(packet.sec)
+
+        print("]\nFor a total of %d pixels" % counter)
 
         if counter == 0:
             raise ValueError("No pixels have been selected!")
 
         ts_tp = test.get_tps()[0].ts
         ts_data = test.get_data()[-1].ts_fpga
-        print("Total measured readout time is %d us" % ((ts_data - ts_tp)*self.chip.ts_us))
-    
+        print("Total measured readout time is %d us" % ((ts_data - ts_tp)*Chip.ts_us))
+
         packet_time = (2**self.chip.read_gcrpar('READOUT_CLK_DIVIDER'))*20/self.fpga.clock_hz
         injection_time = (self.tp_on+self.tp_off)*1E-6
 
@@ -101,7 +101,7 @@ class ThresholdScan(ScanTest):
         self.chip.fifo_overflow_counter_reset()
 
     def post_main(self):
-        self.autostart = False
+        self.sequence.autoread = False
 
     def ctrl_phase0(self, iteration):
         for section in self.sections:
@@ -151,7 +151,7 @@ class ThresholdScan(ScanTest):
         tps = len(dig_injs_tps)
 
         for section in self.sections:
-            packets = list(filter(lambda x : x.sec == section, dig_injs_data))
+            packets = list(filter(lambda x: x.sec == section, dig_injs_data))
 
             if len(packets) < tps:
                 self.logger.warning("Section %d returned %d tps instead of %d", section, len(packets), tps)
@@ -206,22 +206,37 @@ class ThresholdScan(ScanTest):
                 try:
                     self.pixels[(pix.row, pix.col)].saturation_hits[th] += 1
                 except KeyError:
-                    self.logger.warning("Unexpected pixel in this run: %s", pix)
+                    self.logger.info("Unexpected pixel in this run: %s", pix)
 
     @staticmethod
     def _fit(x, mu, sigma):
         return 0.5*(1+scipy.special.erf((x-mu)/(sigma*np.sqrt(2))))
 
     @staticmethod
-    def find_baseline(x, y):
-        #return x[y.index(max(y))]
-
+    def find_baseline(x, noise, saturation):
         avg = 0
-        for index, counts in enumerate(y):
+        total = 0
+        for index, counts in enumerate(noise):
             avg += x[index] * counts
+            total += counts
 
-        avg = avg/sum(x)
-        return avg
+        if total > 0:
+            avg = avg/total
+            return avg
+
+        """
+        try:
+            s_opt, s_cov = scipy.optimize.curve_fit(self._fit, list(range(0,len(saturation_normalized))), saturation_normalized)
+        except RuntimeError:
+            return np.nan
+        """
+
+        threshold = 0.1*max(saturation)
+        for index, counts in enumerate(saturation):
+            if counts >= threshold:
+                return x[index]
+
+        return np.nan
 
     def scurve_fit(self, pixels=None):
         if pixels is None:
@@ -230,20 +245,38 @@ class ThresholdScan(ScanTest):
         for pixel_idx in pixels:
             pixel = self.pixels[pixel_idx]
 
-            data_normalized = [x/self.injections for x in pixel.injected_hits]
-            # Correct for saturation
-            for vcasn, count in enumerate(pixel.saturation_hits):
-                if count > self.injections/4:
-                    data_normalized[vcasn] = 1
+            points = []
+            data = []
+            for vcasn in self.range:
+                if pixel.injected_hits[vcasn] == np.nan:
+                    continue
 
-            s_opt, s_cov = scipy.optimize.curve_fit(self._fit, self.range, data_normalized)
+                tmp = min(pixel.injected_hits[vcasn]/self.injections, 1) if pixel.saturation_hits[vcasn] <= self.injections/4 else 1
+
+                if math.isnan(tmp) or math.isinf(tmp):
+                    points.append(vcasn)
+                    data.append(tmp)
+
+            try:
+                s_opt, s_cov = scipy.optimize.curve_fit(self._fit, points, data)
+            except (RuntimeError, ValueError):
+                pixel.baseline = np.nan
+                pixel.gain = np.nan
+                pixel.noise = np.nan
+
+                pixel.fit_mu = np.nan
+                pixel.fit_mu_err = np.inf
+                pixel.fit_sigma = np.nan
+                pixel.fit_sigma_err = np.inf
+                continue
+
             stderrs = np.sqrt(np.diag(s_cov))
 
             vcal_hi = self.gcrs['BIAS{}_VCAL_HI'.format(pixel.get_sec())]
             vcal_lo = self.gcrs['BIAS{}_VCAL_LO'.format(pixel.get_sec())]
             q_in = ((595+35*vcal_hi)-(560*vcal_lo))*1.1625/1000
 
-            pixel.baseline = 5*self.find_baseline(self.range, pixel.noise_hits) # mV
+            pixel.baseline = 5*self.find_baseline(self.range, pixel.noise_hits, pixel.saturation_hits) # mV
             pixel.gain = 5*(pixel.baseline - s_opt[0])/q_in # mV/fC
             pixel.noise = 5*s_opt[1] # mV
 
@@ -287,47 +320,116 @@ class ThresholdScan(ScanTest):
 
         self.plot_heatmaps()
 
-    def _plot_heatmap(self, fig, ax, **kwargs):
-        return ax.imshow(kwargs['hm'], interpolation='none')
-
     def _plot_notes(self):
-        return "Injections: {}\nNoise hits window: 500ms\nSaturation checks: {}\n".format(self.injections, self.injections) + \
-                "Test Pulse rising edge: 10us\nTest Pulse falling edge: 10us";
+        return "Injections: {}, Noise hits window: 500ms, Saturation checks: {}\n".format(self.injections, self.injections) + \
+                "Test Pulse rising edge: 10us, Test Pulse falling edge: 10us";
 
-    def plot_heatmaps(self, show=True, saveas=None, notes=None):
-        hm_baseline = np.full((512, 512), np.nan)
-        hm_gain = np.full((512, 512), np.nan)
-        hm_noise = np.full((512, 512), np.nan)
+    @staticmethod
+    def _tight_axes(pixels):
+        xes = list(set([x[1] for x in pixels]))
+        yes = list(set([x[0] for x in pixels]))
 
-        notes = "" if notes is None else notes
-        notes = self._plot_notes() + notes
+        xes.sort()
+        yes.sort()
 
-        gains = []
-        noises = []
+        # Empty ticks for the spaces
+        for ax in (xes, yes):
+            old = np.nan
+            new = []
+            for idx, x in enumerate(ax):
+                if idx != 0 and x != old-1:
+                    new.append('')
 
-        for pix in self.pixels:
+                new.append(x)
+                old = x
+
+            ax = new
+
+        print(xes)
+        print(yes)
+
+        return (xes, yes)
+
+    def plot_heatmaps(self, show=True, saveas=None, notes=None, pixels=None):
+        pixels = self.pixels.keys() if pixels is None else pixels
+        xes, yes = self._tight_axes(pixels)
+
+        hm_baseline = np.full((len(yes), len(xes)), np.nan)
+        hm_gain = np.full((len(yes), len(xes)), np.nan)
+        hm_gain_err = np.full((len(yes), len(xes)), np.nan)
+        hm_noise = np.full((len(yes), len(xes)), np.nan)
+        hm_noise_err = np.full((len(yes), len(xes)), np.nan)
+
+        skipped = 0
+        for pix in pixels:
             p = self.pixels[pix]
             if 'baseline' not in p.__dict__:
-                self.scurve_fit(p)
+                self.scurve_fit([pix])
 
             if p.fit_mu_err > 5 or p.fit_sigma_err > 5:
+                skipped += 1
                 continue
 
-            hm_baseline[pix[0], pix[1]] = p.baseline
-            hm_gain[pix[0], pix[1]] = p.gain
-            hm_noise[pix[0], pix[1]] = p.noise
+            hm_baseline[yes.index(pix[0]), xes.index(pix[1])] = p.baseline
+            hm_gain[yes.index(pix[0]), xes.index(pix[1])] = p.gain
+            hm_gain_err[yes.index(pix[0]), xes.index(pix[1])] = p.fit_mu_err
+            hm_noise[yes.index(pix[0]), xes.index(pix[1])] = p.noise
+            hm_noise_err[yes.index(pix[0]), xes.index(pix[1])] = p.fit_sigma_err
 
-            gains.append(p.gain)
-            noises.append(p.noise)
+        print("Skipped %d pixels with errors > 5" % skipped)
 
-        self.plot_heatmap(show=show, saveas=saveas, title='Baseline map', notes=notes, hm=hm_baseline)
-        self.plot_heatmap(show=show, saveas=saveas, title='Gain map', notes=notes, hm=hm_gain)
-        self.plot_heatmap(show=show, saveas=saveas, title='Noise map', notes=notes, hm=hm_noise)
+        notes = self._plot_notes() + ("" if notes is None else notes)
 
-        plt.figure()
-        plt.plot(range(len(gains)), gains, '-bo', label="Gain")
-        ax = plt.plot(range(len(noises)), noises, '-ro', label="Noise")
-        ax.set(xlabel="Pixel", ylabel="mV o mV/fC", title="Extracted data")
+        # Baseline
+        fig, ax1 = plt.subplots()
+        img = ax1.imshow(hm_baseline, interpolation='none')
+        plt.colorbar(img, orientation='horizontal', ax=ax1)
+        self._plot_footer(fig, show, saveas, 'Baseline map', notes)
+
+        # Gain
+        fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
+        img = ax1.imshow(hm_gain, interpolation='none')
+        plt.colorbar(img, orientation='horizontal', ax=ax1)
+        img = ax2.imshow(hm_gain_err, interpolation='none')
+        plt.colorbar(img, orientation='horizontal', ax=ax2)
+        self._plot_footer(fig, show, saveas, 'Gain map', notes)
+
+        # Noise
+        fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
+        img = ax1.imshow(hm_noise, interpolation='none')
+        plt.colorbar(img, orientation='horizontal', ax=ax1)
+        img = ax2.imshow(hm_noise_err, interpolation='none')
+        plt.colorbar(img, orientation='horizontal', ax=ax2)
+        self._plot_footer(fig, show, saveas, 'Noise map', notes)
+
+    def plot_histograms(self, show=True, saveas=None, notes=None, sections=None):
+        sections = list(range(16)) if sections is None else sections
+        if isinstance(sections, int):
+            sections = [sections]
+
+        length = len(sections)
+        x_subplots = math.ceil(math.sqrt(length))
+        y_subplots = math.ceil(length/x_subplots)
+
+        pixels_per_sec = [[] for _ in range(16)]
+        for pixel in self.pixels:
+            pixels_per_sec[self.pixels[pixel].get_sec()].append(self.pixels[pixel])
+
+        fig, axes = plt.subplots(y_subplots, x_subplots)
+        for sec in sections:
+            baselines = [int(pixel.baseline) for pixel in pixels_per_sec[sec]]
+            if len(baselines) == 0:
+                continue
+
+            b_min = min(baselines)
+            b_max = max(baselines)
+            baseline_bins = [len([i for i in baselines if i == x]) for x in range(b_min, b_max+1)]
+            axes[y_subplots-1-math.floor(sec/x_subplots)][sec%x_subplots].hist(baseline_bins, bins=(b_max-b_min))
+
+    def _run(self):
+        self.loop_parallel()
+
+        self.scurve_fit()
 
     def serialize(self):
         listed = []
@@ -346,17 +448,6 @@ class ThresholdScan(ScanTest):
 
         return listed
 
-    def _run(self):
-        self.loop_parallel()
-
-        self.scurve_fit()
-
-        for pix in self.pixels:
-            p = self.pixels[pix]
-
-            print('Fit for pix {} yielded mu {} +- {}, sigma {} +- {}'.format(
-                pix, p.fit_mu, p.fit_mu_err, p.fit_sigma, p.fit_sigma_err))
-
     def deserialize(self, serialized):
         self.injections = serialized.pop(0)
 
@@ -364,7 +455,7 @@ class ThresholdScan(ScanTest):
             p = Pixel(line[0], line[1])
             p.injected_hits = line[2]
             p.noise_hits = line[3]
-            p.saturation_hits = line[3]
-            p.injected_fe_hits = line[4]
+            p.saturation_hits = line[4]
+            p.injected_fe_hits = line[5]
 
             self.pixels[(line[0], line[1])] = p

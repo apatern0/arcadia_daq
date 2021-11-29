@@ -9,10 +9,23 @@ import json
 import datetime
 import matplotlib
 import matplotlib.pyplot as plt
+import tqdm
 
-from .daq import Fpga, onecold
+from .daq import Fpga, Chip, onecold
 from .sequence import Sequence, SubSequence
 from .data import ChipData, TestPulse
+
+class TqdmLoggingHandler(logging.Handler):
+    def __init__(self, level=logging.NOTSET):
+        super().__init__(level)
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            tqdm.tqdm.write(msg)
+            self.flush()
+        except Exception:
+            self.handleError(record)
 
 class Test:
     """Test generator class. Contains helper functions and initialization
@@ -26,33 +39,28 @@ class Test:
     gcrs = None
 
     chip_timestamp_divider = 0
+    lanes_excluded = []
 
     def __init__(self):
         self.fpga = Fpga()
         self.chip = self.fpga.get_chip(0)
         self.sequence = Sequence(chip=self.chip)
-        self.logger = logging.getLogger(__name__)
 
         self.title = ''
-        self.xlabel = ''
-        self.ylabel = ''
-
-        # Load configuration
-        self.load_cfg()
-
-        # Initialize Chip
-        self.fpga.init_connection()
-        self.chip.logger = self.logger
 
         # Initialize Logger
-        ch = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
-        #ch.setLevel(logging.WARNING)
-        self.logger.addHandler(ch)
+        self.logger = logging.getLogger(__name__)
+        if not self.logger.handlers:
+            ch = TqdmLoggingHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            ch.setFormatter(formatter)
+            ch.setLevel(logging.WARNING)
+            self.logger.addHandler(ch)
 
         self.result = None
-        self.lanes_excluded = []
+
+        # Initialize Chip
+        self.chip.logger = self.logger
 
     def load_cfg(self):
         """Loads chip-wide configuration from a chip.ini file
@@ -64,7 +72,7 @@ class Test:
         config.read('./chip.ini')
 
         this_chip = 'id'+str(self.chip.id)
-        
+
         if this_chip not in config.sections():
             return False
 
@@ -76,30 +84,31 @@ class Test:
             stm = [int(x) for x in stm]
             self.chip.lanes_masked = stm
 
-    def set_timestamp_resolution(self, res_s):
+    def set_timestamp_resolution(self, res_s, update_hw=True):
         """Configures the timestamp resolution on both the chip and the FPGA.
-        
         :param int res_s: Timestamp resolution in seconds
         """
 
-        chip_clock_divider = math.log( (self.fpga.clock_hz * res_s)/10, 2)
-        if( math.floor(chip_clock_divider) != chip_clock_divider ):
+        chip_clock_divider = math.log((self.fpga.clock_hz * res_s)/10, 2)
+        if math.floor(chip_clock_divider) != chip_clock_divider:
             raise ValueError('Chip Clock Divider can\'t be set to non-integer value: %.3f' % chip_clock_divider)
         chip_clock_divider = math.floor(chip_clock_divider)
-        self.logger.info('Chip clock divider: %d' % chip_clock_divider)
+        self.logger.info('Chip clock divider: %d', chip_clock_divider)
 
         fpga_clock_divider = (self.fpga.clock_hz * res_s) -1
-        if( math.floor(fpga_clock_divider) != fpga_clock_divider ):
+        if math.floor(fpga_clock_divider) != fpga_clock_divider:
             raise ValueError('FPGA Clock Divider can\'t be set to non-integer value: %.3f' % fpga_clock_divider)
         fpga_clock_divider = math.floor(fpga_clock_divider)
-        self.logger.info('Fpga clock divider: %d' % fpga_clock_divider)
+        self.logger.info('Fpga clock divider: %d', fpga_clock_divider)
 
-        self.chip.ts_us = res_s*1E6
-
-        self.chip.write_gcrpar('TIMING_CLK_DIVIDER', chip_clock_divider)
-        self.chip.set_timestamp_period(fpga_clock_divider)
+        Chip.ts_us = res_s*1E6
 
         self.chip_timestamp_divider = chip_clock_divider
+
+        if update_hw:
+            self.chip.write_gcrpar('TIMING_CLK_DIVIDER', chip_clock_divider)
+            self.chip.set_timestamp_period(fpga_clock_divider)
+            self.timestamp_sync()
 
     def chip_init(self):
         """Common chip initialization settings
@@ -272,8 +281,8 @@ class Test:
         if iteration > iterations:
             raise RuntimeError('Unable to mask noisy lanes. Aborting.')
 
-        self.lanes_excluded = list(set(self.chip.lanes_masked + lanes_dead + lanes_invalid + lanes_noisy + lanes_unsync))
-        if self.lanes_excluded == list(range(16)):
+        Test.lanes_excluded = list(set(self.chip.lanes_masked + lanes_dead + lanes_invalid + lanes_noisy + lanes_unsync))
+        if Test.lanes_excluded == list(range(16)):
             raise RuntimeError('All the lanes are masked! Unable to proceed!')
 
         if len(lanes_dead) != 0:
@@ -282,7 +291,7 @@ class Test:
         if len(lanes_invalid) != 0:
             print('Marking as dead the lanes that couldn\'t be stabilized: %s' % lanes_invalid)
 
-        self.chip.lanes_masked = self.lanes_excluded
+        self.chip.lanes_masked = Test.lanes_excluded
         self.chip.enable_readout(0xffff)
 
         if autoread:
@@ -347,8 +356,7 @@ class Test:
         ts_fpga = data.ts_fpga & 0xff
         ts_delta = ts_fpga - ts_chip
 
-        if ts_delta != 0:
-            self.logger.warning("Timestamp alignment failed: FPGA: %x CHIP: %x DELTA: %x", ts_fpga, ts_chip, ts_delta)
+        self.logger.warning("Timestamp alignment: FPGA: %x CHIP: %x DELTA: %x", ts_fpga, ts_chip, ts_delta)
 
     def initialize(self, sync_not_calibrate=True, auto_read=True, iterations=1):
         """Perform default test and chip initialization routines.
@@ -356,6 +364,11 @@ class Test:
         :param bool sync_not_calibrate: Avoid to perform lanes calibration
         :param bool auto_read: Enable automatic packet readout from the FPGA
         """
+
+        self.fpga.init_connection()
+
+        # Load configuration
+        self.load_cfg()
 
         saved_masked = self.chip.lanes_masked
 
@@ -372,7 +385,7 @@ class Test:
             self.stabilize_lanes(sync_not_calibrate, iterations)
 
             try:
-                self.timestamp_sync()
+                self.set_timestamp_resolution(1E-6)
             except RuntimeError:
                 ok = False
                 self.logger.warning("Initialization trial %d KO. Re-trying...", i)
@@ -381,7 +394,6 @@ class Test:
                 if auto_read:
                     self.chip.packets_reset()
                     self.chip.packets_read_start()
-
                 return
 
         raise RuntimeError('Unable to receive data from the chip!')
@@ -411,7 +423,7 @@ class Test:
 
             i = 1
             while True:
-                filename = saveas + ("_%d" % i) + ext
+                filename = saveas + ("_%d" % i) + "." + ext
                 if not os.path.exists(filename):
                     break
 
@@ -481,6 +493,7 @@ class Test:
         json.dump(listed, codecs.open(self._filename(saveas), 'w', encoding='utf-8'), separators=(',', ':'), sort_keys=True, indent=4)
 
         print("Test results and configuration saved in:\n%s" % saveas)
+        return saveas 
 
     def load(self, filename):
         """Loads the GCR configuration and test results from a file.
@@ -492,7 +505,14 @@ class Test:
             return
 
         with codecs.open(filename, 'r', encoding='utf-8') as handle:
-            contents = json.loads(handle.read())
+            try:
+                contents = json.loads(handle.read())
+            except json.decoder.JSONDecodeError:
+                return
+
+            if len(contents) == 0:
+                return
+
             self.gcrs = contents.pop(0)
 
             self.deserialize(contents)
@@ -506,19 +526,16 @@ class Test:
     def plot(self, show=True, saveas=None, notes=None):
         raise NotImplementedError()
 
-    def _plot_footer(self, fig, ax, show, saveas, title, notes):
+    def _plot_footer(self, fig, show, saveas, title, notes):
         title = self.title + (title if title is not None else '')
 
-        ax.set(xlabel=self.xlabel, ylabel=self.ylabel, title=title)
-        ax.margins(0)
-
-        if notes is not None:
-            #plt.figtext(0.5, 0.01, notes, ha="center", fontsize=10)
-            ax.annotate(notes, xy = (0.5, -0.2), xycoords='axes fraction', ha='center', va='top', fontsize=12, annotation_clip=False)
-
-            fig.texts.append(ax.texts.pop())
+        fig.suptitle(title)
 
         fig.tight_layout()
+
+        if notes is not None:
+            plt.text(0.5, 0.1, notes, fontsize=8, ha="center", transform=plt.gcf().transFigure)
+            plt.subplots_adjust(bottom=0.2)
 
         if saveas is not None:
             fig.savefig(self._filename(saveas+'.pdf'), bbox_inches='tight')
@@ -540,7 +557,7 @@ class Test:
 
         plt.colorbar(image, orientation='horizontal')
 
-        self._plot_footer(fig, ax, show, saveas, title, notes)
+        self._plot_footer(fig, show, saveas, title, notes)
 
     def plot_points(self, show=True, saveas=None, title=None, notes=None, **kwargs):
         if not show and saveas is None:
@@ -553,4 +570,4 @@ class Test:
         ax.legend()
         ax.grid()
 
-        self._plot_footer(fig, ax, show, saveas, title, notes)
+        self._plot_footer(fig, show, saveas, title, notes)

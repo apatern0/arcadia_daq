@@ -159,7 +159,7 @@ class SubSequence:
         if self.parent is not None and self.parent.autoread:
             elapsed = 0
             while True:
-                if elapsed > self.parent.timeout:
+                if self.parent.timeout is not None and elapsed > self.parent.timeout:
                     raise RuntimeError("Pop timed out")
 
                 self.parent.lock.acquire()
@@ -186,7 +186,7 @@ class SubSequence:
         if self.parent is not None and self.parent.autoread:
             elapsed = 0
             while True:
-                if elapsed > self.parent.timeout:
+                if self.parent.timeout is not None and elapsed > self.parent.timeout:
                     raise RuntimeError("Pop timed out")
 
                 self.parent.lock.acquire()
@@ -215,7 +215,7 @@ class SubSequence:
             raise RuntimeError("The Sequence doesn't have a valid linked Chip. Unable to continue")
 
         # t_on is in FPGA CCs. Translate into timestamp counts
-        ts_delta = int(us_on/self.parent.chip.ts_us)
+        ts_delta = int(us_on/Chip.ts_us)
 
         t0 = time.time()
         tps = [tp.ts_ext for tp in self.get_tps()]
@@ -328,13 +328,14 @@ class Sequence:
     tries = 5
     _queue = None
     _popped = None
-    timeout = 15
+    timeout = None
 
     def __init__(self, packets=None, autoread=False, chip=None):
         self.autoread = autoread
         self.chip = chip
         self._queue = []
         self._popped = []
+        self.autoread_idle = 0
 
         self.lock = threading.Lock()
         self.autoread_thread = None
@@ -347,15 +348,25 @@ class Sequence:
         self.elaborate_auto(packets)
 
     def __autoread(self):
+        self.autoread_idle = 0
+
         while self.autoread:
+            time.sleep(1E-3)
             packets = self.chip.readout()
+
+            if len(packets) == 0:
+                self.autoread_idle += 1E-3
+                continue
+
+            self.autoread_idle = 0
+
             tmp = Sequence()
             tmp.elaborate_auto(packets)
 
             self.lock.acquire()
             self.extend(tmp)
             self.lock.release()
-            time.sleep(1E-3)
+
 
     def autoread_start(self):
         self.autoread = True
@@ -379,22 +390,26 @@ class Sequence:
             per_thread = math.ceil(len(packets)/8)
 
         workers = []
-        sequences = [Sequence() for _ in range(threads)]
+        sequences = []
         for i in range(threads):
+            sequence = Sequence()
             stop = len(packets) if i == threads-1 else (i+1)*per_thread
-            thread = threading.Thread(name='Elaborator%d' % i, target=sequences[i].elaborate, args=(packets[i*per_thread:stop], ))
+            thread = threading.Thread(name='Elaborator%d' % i, target=sequence.elaborate, args=(packets[i*per_thread:stop], ))
             thread.start()
             workers.append(thread)
+            sequences.append(sequence)
 
-        for i in range(threads):
-            workers[i].join(timeout=1)
-            self.extend(sequences[i])
+        for worker in workers:
+            worker.join()
+
+        for seq in sequences:
+            self.extend(seq)
 
     def __getitem__(self, item):
         if self.autoread:
             elapsed = 0
             while True:
-                if elapsed > self.timeout:
+                if self.timeout is not None and elapsed > self.timeout:
                     raise RuntimeError("Pop timed out")
 
                 self.lock.acquire()
@@ -424,7 +439,7 @@ class Sequence:
         if self.autoread:
             elapsed = 0
             while True:
-                if elapsed > self.timeout:
+                if self.timeout is not None and elapsed >= self.timeout:
                     raise RuntimeError("Pop timed out")
 
                 self.lock.acquire()

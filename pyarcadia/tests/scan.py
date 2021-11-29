@@ -12,14 +12,21 @@ class ParallelAnalysis(threading.Thread):
         self.test = test
 
     def run(self):
-        total = len(self.test.range)*len(self.test.phases)
-        for _ in range(total):
+        minimum = len(self.test.range)*len(self.test.phases)
+        i = 0
+        timedout = False
+        while i < minimum or len(self.test.sequence) > 0:
             try:
                 self.test.elab_auto()
             except RuntimeError:
+                timedout = True
                 break
 
             self.test.ebar.update(1)
+            i += 1
+
+        if timedout:
+            self.test.logger.warning("Analysis thread exited due to popping timeout")
 
 class ScanTest(Test):
     range = []
@@ -28,29 +35,28 @@ class ScanTest(Test):
 
     reader = None
     ebar = None
-
-    phases = {}
-    ctrl_phases_to_run = []
-    ctrl_phases_run = []
-    elab_phases_run = []
     log = False
+
+    def __init__(self):
+        super().__init__()
+
+        self.phases = {}
+        self.ctrl_phases_to_run = []
+        self.ctrl_phases_run = []
+        self.elab_phases_run = []
+
+        self.max_retries = 2
+        self.analysis_thread = None
 
     def pre_main(self):
         return
 
-    def pre_loop(self):
-        return
-
-    def loop_body(self, iteration):
-        return
-
-    def post_loop(self):
+    def post_main(self):
+        self.sequence.timeout = 0
+        print("Test is complete!")
         return
 
     def missing(self):
-        print(self.ctrl_phases_run)
-        print(self.elab_phases_run)
-
         elab_missing = []
         for t in self.ctrl_phases_run:
             if t not in self.elab_phases_run:
@@ -83,18 +89,35 @@ class ScanTest(Test):
             if nt not in additional:
                 additional.append(nt)
 
-        return additional
+        # Extract iterations, run them again
+        redo = []
+        output = []
+        for j in additional:
+            if j[1] not in redo:
+                redo.append(j[1])
+                for phase in self.phases:
+                    output.append( (phase, j[1]) )
 
-    def elab_auto(self, timeout=10):
+        return output
+
+    def elab_auto(self):
         popped = self.sequence.pop(0, log=self.log)
 
         if popped[-1].message not in self.phases:
-            raise RuntimeError("Invalid phase: %s", popped[-1])
+            raise RuntimeError("Invalid phase: ", popped[-1])
 
         # Call elaboration
         self.phases[popped[-1].message][1](popped)
 
         self.elab_phases_run.append((popped[-1].message, popped[-1].payload))
+
+    def _start_analysis_thread(self):
+        if self.analysis_thread is not None and self.analysis_thread.is_alive():
+            self.logger.warning("Analysis thread was alive, waiting for it to end...")
+            self.analysis_thread.join()
+
+        self.analysis_thread = ParallelAnalysis(self)
+        self.analysis_thread.start()
 
     def loop(self):
         self.ctrl_phases_to_run = []
@@ -131,8 +154,10 @@ class ScanTest(Test):
 
             break
 
+        self.post_main()
+
     def loop_parallel(self):
-        self.chip.idle_timeout=5
+        self.chip.idle_timeout = 5
 
         self.ctrl_phases_to_run = []
         for i in self.range:
@@ -141,13 +166,13 @@ class ScanTest(Test):
 
         self.pre_main()
         length = len(self.ctrl_phases_to_run)
-        while True:
+        for _ in range(self.max_retries):
             self.ctrl_phases_run = []
             self.elab_phases_run = []
             length = len(self.ctrl_phases_to_run)
 
-            analysis_thread = ParallelAnalysis(self)
-            analysis_thread.start()
+            self.sequence.timeout = None
+            self._start_analysis_thread()
 
             with tqdm(total=length, desc='Acquisition') as abar, tqdm(total=length, desc='Elaboration') as self.ebar:
                 for phase, iteration in self.ctrl_phases_to_run:
@@ -157,7 +182,12 @@ class ScanTest(Test):
                     self.ctrl_phases_run.append((phase, iteration))
                     abar.update(1)
 
-                analysis_thread.join()
+                while self.sequence.autoread_idle < 10 or self.chip.packets_count() != 0:
+                    time.sleep(0.5)
+
+                self.logger.warning("FPGA FIFO Idle time: %d s, Autoread idle: %d s, Packet count: %d. Setting Sequence graceful timeout to 10 seconds" % (self.chip.packets_idle_time(), self.sequence.autoread_idle, self.chip.packets_count()))
+                self.sequence.timeout = 10
+                self.analysis_thread.join()
 
             missing = self.missing()
             if len(missing) != 0:
@@ -170,6 +200,8 @@ class ScanTest(Test):
 
             break
 
+        self.post_main()
+
     def loop_reactive(self):
         """ TODO: Support recovery of lost phases """
         self.pre_main()
@@ -181,8 +213,5 @@ class ScanTest(Test):
                 self.phases[phase][1](iteration)
                 self.ctrl_phases_run.append((phase, iteration))
                 bar.update(1)
-        
-        self.post_main()
 
-    def __init__(self):
-        super().__init__()
+        self.post_main()

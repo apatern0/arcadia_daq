@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 
 @dataclass
@@ -258,25 +259,21 @@ class ChipData:
         """
         pixels = []
 
-        for pix in range(0, 8):
+        for pix in range(8):
             if (self.hitmap >> pix) & 0b1 == 0:
                 continue
 
-            pr_row = ((pix % 4) > 1)
-            pr_col = (pix % 2)
+            # External contributions
+            row = self.corepr*4
+            col = self.sec*32 + self.col*2
 
-            if pix > 3:
-                corepr = self.corepr
-                row = 2
-            else:
-                corepr = self.corepr + 1 - self.bottom
-                row = 0
+            # Hitmap contributions
+            row += math.floor(pix/2)
+            col += (pix % 2)
 
-            row += corepr*4 + pr_row
-            col = self.sec*32 + self.col*2 + pr_col
-
-            if row > 511 or col > 511:
-                raise IndexError('oob %s' % str(self))
+            # If slave, check whether top or bottom
+            if pix < 4 and self.bottom == 0 and self.corepr < 0x7f:
+                row += 2
 
             pixels.append(Pixel(row, col))
 
