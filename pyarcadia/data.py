@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 
 @dataclass
@@ -7,6 +8,7 @@ class FPGAData:
     :param int word: 64-bit word from the FPGA
     """
     word: int = None
+    packets_count = 0
 
     def __index__(self):
         return self.word
@@ -68,6 +70,7 @@ class FPGAData:
             return CustomWord(self)
 
         # Chip data
+        FPGAData.packets_count += 1
         return ChipData(self, sequence)
 
     @staticmethod
@@ -199,6 +202,8 @@ class ChipData:
         else:
             self.ts_sw = self.sequence.ts_sw
 
+        self.tag = None
+
         if self.fpga_packet is None:
             self.bottom  = None
             self.hitmap  = None
@@ -237,7 +242,10 @@ class ChipData:
         """Extends the timestamp of the data packet by using the timestamp on the FPGA
         """
         ts_fpga_msb = (self.ts_fpga & 0xffff00)
-        ts_fpga_lsb = (self.ts_fpga & 0xff)
+
+        # Account for LSB uncertainty
+        ts_fpga_lsb = ((self.ts_fpga+1) & 0xff)
+
         if self.ts > ts_fpga_lsb:
             ts_fpga_msb = (ts_fpga_msb-0x100)
 
@@ -251,25 +259,21 @@ class ChipData:
         """
         pixels = []
 
-        for pix in range(0, 8):
+        for pix in range(8):
             if (self.hitmap >> pix) & 0b1 == 0:
                 continue
 
-            pr_row = ((pix % 4) > 1)
-            pr_col = (pix % 2)
+            # External contributions
+            row = self.corepr*4
+            col = self.sec*32 + self.col*2
 
-            if pix > 3:
-                corepr = self.corepr
-                row = 2
-            else:
-                corepr = self.corepr + 1 - self.bottom
-                row = 0
+            # Hitmap contributions
+            row += math.floor(pix/2)
+            col += (pix % 2)
 
-            row += corepr*4 + pr_row
-            col = self.sec*32 + self.col*2 + pr_col
-
-            if row > 511 or col > 511:
-                raise IndexError('oob %s' % str(self))
+            # If slave, check whether top or bottom
+            if pix < 4 and self.bottom == 0 and self.corepr < 0x7f:
+                row += 2
 
             pixels.append(Pixel(row, col))
 
@@ -295,6 +299,9 @@ class TestPulse:
 
         packet_bytes = self.fpga_packet.to_bytes()
         self.ts = (packet_bytes[2] << 16) | (packet_bytes[1] << 8) | packet_bytes[0]
+        self.extend_timestamp()
+
+    def extend_timestamp(self):
         self.ts_ext = (self.ts_sw << 24) | self.ts
 
     def __str__(self):
@@ -307,7 +314,7 @@ class CustomWord:
     :param FPGAData fpga_packet: 64-bit data from the FPGA
     """
     fpga_packet: FPGAData = None
-    message: int = None
+    message: int = 0
     payload: int = None
 
     def __post_init__(self):
@@ -334,4 +341,6 @@ class CustomWord:
         return True
 
     def __str__(self):
-        return "%s -     MSG : 0x%x - PAYLOAD : 0x%x" % (self.fpga_packet.to_hex(), self.message, self.payload)
+        fpga_hex = 0 if not isinstance(self.fpga_packet, FPGAData) else self.fpga_packet.to_hex()
+        payload = self.payload if self.payload is not None else 0
+        return "%s -     MSG : 0x%x - PAYLOAD : 0x%x" % (fpga_hex, self.message, payload)

@@ -20,7 +20,7 @@ x.chip.pixels_mask()
 x.chip.pixels_cfg(0b01, 0xffff, [0], [0], [0], 0xf)
 x.chip.packets_reset()
 
-x.chip.send_tp(400)
+x.chip.send_tp(3)
 time.sleep(1)
 
 # Test

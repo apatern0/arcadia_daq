@@ -4,8 +4,8 @@
 *.so
 *.o
 __pycache__
+work/*
 work/bin/*
-work/results*
-work/vivado*
-!work/bin/Makefile
+!work/bin
+!work/Makefile
 docs/_build

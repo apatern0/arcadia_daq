@@ -29,7 +29,7 @@ ChipIf::ChipIf(uint8_t id, FPGAIf* fpga_ptr) {
 	chip_id = id;
 	fpga = fpga_ptr;
 
-	max_packets = 25E6;
+	max_packets = 12.5E6;
 	run_flag = false;
 	daq_timeout = false;
 	spi_unavailable = false;
@@ -320,18 +320,18 @@ int ChipIf::send_pulse(uint32_t t_on, uint32_t t_off, uint32_t tp_number) {
 }
 
 size_t ChipIf::fifo_read(size_t num_packets) {
-	const uhal::Node& Node_fifo_data = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".data");
 	uint32_t packets_fifo = fifo_count();
 
 	if (packets_fifo == 0)
 		return -1;
 
 	if (packets_write->size() > max_packets) {
-		std::cerr << "Currently reached maximum packets. Unable to read " << std::dec << packets_fifo << " packets from FPGA." << std::endl;
-		Node_fifo_data.readBlock(packets_fifo*2);
+		//std::cerr << "Currently reached maximum packets. Unable to read " << std::dec << packets_fifo << " packets from FPGA." << std::endl;
 		sleep(0.1);
 		return -1;
 	}
+
+	const uhal::Node& Node_fifo_data = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".data");
 
 	uint32_t packets_to_read;
 	if(num_packets) {
@@ -410,7 +410,7 @@ void ChipIf::fifo_read_start() {
 	if (run_flag == true)
 		return;
 
-	packets_write->reserve(12.5E6);
+	packets_write->reserve(max_packets/2);
 
 	packets_reset();
 
@@ -440,6 +440,32 @@ uint32_t ChipIf::fifo_count() {
 		throw std::runtime_error("DAQ board returned an invalid fifo occupancy value of " + std::to_string(occupancy) + " (odd instead of even)");
 
 	return (uint32_t) occupancy/2;
+}
+
+uint32_t ChipIf::fifo_overflow_count() {
+	const uhal::Node& Node_fifo_fullcounter = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".full_counter");
+	uhal::ValWord<uint32_t> fifo_fullcounter = Node_fifo_fullcounter.read();
+	fpga->lHW.dispatch();
+	uint32_t full_counter = fifo_fullcounter.value();
+	
+	return full_counter;
+}
+
+uint32_t ChipIf::fifo_idle_count() {
+	const uhal::Node& Node_fifo_idlecounter = fpga->lHW.getNode("fifo_id" + std::to_string(chip_id) + ".counter_timelike");
+	uhal::ValWord<uint32_t> fifo_idlecounter = Node_fifo_idlecounter.read();
+	fpga->lHW.dispatch();
+	uint32_t idlecounter = fifo_idlecounter.value();
+	
+	return idlecounter;
+}
+
+void ChipIf::fifo_overflow_counter_reset() {
+	const uhal::Node& node_fifo_reset = fpga->lHW.getNode("regfile.mode");
+	node_fifo_reset.write(0xffff);
+	fpga->lHW.dispatch();
+	node_fifo_reset.write(0x0000);
+	fpga->lHW.dispatch();
 }
 
 int ChipIf::fifo_reset() {
@@ -629,7 +655,11 @@ FPGAIf::FPGAIf(std::string connection_xml_path, std::string device_id, bool verb
 	for (uint8_t id: {0, 1, 2}) {
 
 		chips[id] = new ChipIf(id, this);
+	}
+}
 
+int FPGAIf::connect() {
+	for (uint8_t id: {0, 1, 2}) {
 		// init firmware spi controller
 		std::string spi_id = "spi_id" + std::to_string(id);
 		lHW.getNode(spi_id + ".CTRL").write(0);
@@ -643,6 +673,8 @@ FPGAIf::FPGAIf(std::string connection_xml_path, std::string device_id, bool verb
 			throw std::runtime_error("SPI core " + spi_id + " configuration fail.");
 		}
 	}
+
+	return 0;
 }
 
 int FPGAIf::read_conf(std::string fname) {
@@ -737,8 +769,7 @@ void FPGAIf::dump_DAQBoard_reg() {
 
 FPGAIf::~FPGAIf() {
 	for (uint8_t id: {0, 1, 2}) {
-		ChipIf* chip = chips[id];
-		chip->packets_read_stop();
+		chips[id]->packets_read_stop();
    	}
 }
 
