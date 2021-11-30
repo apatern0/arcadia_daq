@@ -3,7 +3,7 @@ import time
 import numpy as np
 import scipy.optimize
 import scipy.special
-from matplotlib import pyplot as plt, cm, colors
+from matplotlib import pyplot as plt, cm, colors, ticker
 
 from ..daq import Chip
 from ..data import CustomWord, Pixel, FPGAData
@@ -248,12 +248,12 @@ class ThresholdScan(ScanTest):
             points = []
             data = []
             for vcasn in self.range:
-                if pixel.injected_hits[vcasn] == np.nan:
+                if math.isnan(pixel.injected_hits[vcasn]):
                     continue
 
                 tmp = min(pixel.injected_hits[vcasn]/self.injections, 1) if pixel.saturation_hits[vcasn] <= self.injections/4 else 1
 
-                if math.isnan(tmp) or math.isinf(tmp):
+                if not math.isnan(tmp) and not math.isinf(tmp):
                     points.append(vcasn)
                     data.append(tmp)
 
@@ -301,9 +301,20 @@ class ThresholdScan(ScanTest):
         ax.set_ylim(bottom=0, top=4*self.injections)
         #total = [x + y for x, y in zip(inj, noise)]
 
+        def format_threshold(x, y):
+            return 5*(63-x)
+
+        ax.xaxis.set_major_formatter(ticker.FuncFormatter(format_threshold))
+
+        ax.set_xlabel('Threshold (mV)')
+        ax.set_ylabel('Hits')
+
     def plot_single(self, show=True, saveas=None, pix=None, notes=None):
         if pix is None or pix not in self.pixels:
             return
+
+        if not hasattr(self.pixels[pix], 'fit_mu'):
+            self.scurve_fit([pix])
 
         notes = "" if notes is None else notes
         notes = self._plot_notes() + notes
@@ -345,9 +356,6 @@ class ThresholdScan(ScanTest):
 
             ax = new
 
-        print(xes)
-        print(yes)
-
         return (xes, yes)
 
     def plot_heatmaps(self, show=True, saveas=None, notes=None, pixels=None):
@@ -360,14 +368,14 @@ class ThresholdScan(ScanTest):
         hm_noise = np.full((len(yes), len(xes)), np.nan)
         hm_noise_err = np.full((len(yes), len(xes)), np.nan)
 
-        skipped = 0
+        skipped = []
         for pix in pixels:
             p = self.pixels[pix]
             if 'baseline' not in p.__dict__:
                 self.scurve_fit([pix])
 
             if p.fit_mu_err > 5 or p.fit_sigma_err > 5:
-                skipped += 1
+                skipped.append(pix)
                 continue
 
             hm_baseline[yes.index(pix[0]), xes.index(pix[1])] = p.baseline
@@ -376,7 +384,8 @@ class ThresholdScan(ScanTest):
             hm_noise[yes.index(pix[0]), xes.index(pix[1])] = p.noise
             hm_noise_err[yes.index(pix[0]), xes.index(pix[1])] = p.fit_sigma_err
 
-        print("Skipped %d pixels with errors > 5" % skipped)
+        if len(skipped) > 0:
+            print("Skipped the following pixels with errors > 5: %s" % skipped)
 
         notes = self._plot_notes() + ("" if notes is None else notes)
 
@@ -384,7 +393,7 @@ class ThresholdScan(ScanTest):
         fig, ax1 = plt.subplots()
         img = ax1.imshow(hm_baseline, interpolation='none')
         plt.colorbar(img, orientation='horizontal', ax=ax1)
-        self._plot_footer(fig, show, saveas, 'Baseline map', notes)
+        self._plot_footer(fig, show, saveas, 'Baseline map', notes, saveas_append="_baseline")
 
         # Gain
         fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
@@ -392,7 +401,7 @@ class ThresholdScan(ScanTest):
         plt.colorbar(img, orientation='horizontal', ax=ax1)
         img = ax2.imshow(hm_gain_err, interpolation='none')
         plt.colorbar(img, orientation='horizontal', ax=ax2)
-        self._plot_footer(fig, show, saveas, 'Gain map', notes)
+        self._plot_footer(fig, show, saveas, 'Gain map', notes, saveas_append="_gain")
 
         # Noise
         fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
@@ -400,7 +409,7 @@ class ThresholdScan(ScanTest):
         plt.colorbar(img, orientation='horizontal', ax=ax1)
         img = ax2.imshow(hm_noise_err, interpolation='none')
         plt.colorbar(img, orientation='horizontal', ax=ax2)
-        self._plot_footer(fig, show, saveas, 'Noise map', notes)
+        self._plot_footer(fig, show, saveas, 'Noise map', notes, saveas_append="_noise")
 
     def plot_histograms(self, show=True, saveas=None, notes=None, sections=None):
         sections = list(range(16)) if sections is None else sections
@@ -415,16 +424,29 @@ class ThresholdScan(ScanTest):
         for pixel in self.pixels:
             pixels_per_sec[self.pixels[pixel].get_sec()].append(self.pixels[pixel])
 
-        fig, axes = plt.subplots(y_subplots, x_subplots)
-        for sec in sections:
-            baselines = [int(pixel.baseline) for pixel in pixels_per_sec[sec]]
-            if len(baselines) == 0:
-                continue
+        plots = (("Baseline", "mV", "baseline"), ("Gain", "mV/fC", "gain"), ("Noise", "mV", "noise"))
 
-            b_min = min(baselines)
-            b_max = max(baselines)
-            baseline_bins = [len([i for i in baselines if i == x]) for x in range(b_min, b_max+1)]
-            axes[y_subplots-1-math.floor(sec/x_subplots)][sec%x_subplots].hist(baseline_bins, bins=(b_max-b_min))
+        for plot in plots:
+            fig, axes = plt.subplots(y_subplots, x_subplots)
+            for sec in sections:
+                plottable = [getattr(pixel, plot[2]) for pixel in pixels_per_sec[sec]]
+                if len(plottable) == 0:
+                    continue
+
+                if y_subplots > 1:
+                    sec_ax = axes[y_subplots-1 -math.floor(sec/x_subplots)][sec%x_subplots]
+                elif x_subplots > 1:
+                    sec_ax = axes[sec%x_subplots]
+                else:
+                    sec_ax = axes
+
+                sec_ax.hist(plottable, bins=np.arange(min(plottable), max(plottable) + 1), density=True)
+                sec_ax.set_title("Section {}".format(sec))
+
+                sec_ax.set_xlabel(plot[1])
+                sec_ax.set_ylabel('%')
+
+            self._plot_footer(fig, show, saveas, plot[0], notes, saveas_append=plot[2])
 
     def _run(self):
         self.loop_parallel()

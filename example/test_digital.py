@@ -11,9 +11,9 @@ from pyarcadia.sequence import SubSequence
 x = Test()
 x.chip.track_pcr = True
 
-x.logger.setLevel(logging.INFO)
 x.set_timestamp_resolution(1E-6)
-x.initialize(auto_read=False, iterations=2)
+x.initialize(auto_read=False)
+
 x.logger.setLevel(logging.WARNING)
 
 x.chip.pixels_mask()
@@ -77,14 +77,10 @@ print("Injectables: %d x %d TPs = %d -> Received: %d" % (len(injectable), tps, l
 print(tabulate(toprint, headers=["Sec", "DCol", "CorePr", "Master", "Idx", "Row", "Col", "Unexpected Balance", "Pixel Cfg"]))
 
 def plot():
-    @customplot(('Row (#)', 'Col (#)'), 'Baseline distribution')
-    def aplot(matrix, show=True, saveas=None, ax=None):
-        cmap = matplotlib.cm.jet
-        cmap.set_bad('gray',1.)
-        image = ax.imshow(matrix, interpolation='none', cmap=cmap)
+    fig, ax = plt.subplots()
+    cmap = matplotlib.cm.jet
+    cmap.set_bad('gray', 1.)
+    image = ax.imshow(hits, interpolation='none', cmap=cmap)
 
-        for i in range(1,16):
-            plt.axvline(x=i*32-0.5,color='black')
-        return image
-
-    aplot(hits, show=True)
+    for i in range(1, 16):
+        plt.axvline(x=i*32-0.5, color='black')

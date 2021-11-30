@@ -526,7 +526,7 @@ class Test:
     def plot(self, show=True, saveas=None, notes=None):
         raise NotImplementedError()
 
-    def _plot_footer(self, fig, show, saveas, title, notes):
+    def _plot_footer(self, fig, show, saveas, title, notes, saveas_append=""):
         title = self.title + (title if title is not None else '')
 
         fig.suptitle(title)
@@ -538,7 +538,7 @@ class Test:
             plt.subplots_adjust(bottom=0.2)
 
         if saveas is not None:
-            fig.savefig(self._filename(saveas+'.pdf'), bbox_inches='tight')
+            fig.savefig(self._filename(saveas+saveas_append+'.pdf'), bbox_inches='tight')
 
         if show:
             matplotlib.interactive(True)
