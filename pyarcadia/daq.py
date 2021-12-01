@@ -251,6 +251,8 @@ class Chip:
 
             time.sleep(step)
 
+        self.logger.info('Slept for %.3f seconds', (time.time()-t0))
+
     def packets_lost_count(self):
         """Get the number of data packets lost due to FPGA FIFO being full
 

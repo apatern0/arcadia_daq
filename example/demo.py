@@ -35,8 +35,7 @@ print("\n\nScanned the following pixels: %s\n\n" % pix_list)
 
 print("\n\nScan over! Now plotting the scurves of the first 5 pixels...\n\n")
 for i in range(5):
-    #x.plot_single(pix=pix_list[i])
-    pass
+    x.plot_single(pix=pix_list[i])
 
 print("\n\nSaving the results using autosave\n\n")
 

@@ -161,7 +161,7 @@ class BaselineScan(ScanTest):
             super().loop_reactive()
 
     def _plot_heatmap(self, fig, ax, **kwargs):
-        return ax.imshow(self.result, interpolation='none')
+        return ax.imshow(self.result, interpolation='none', origin='lower')
 
     def plot(self, show=True, saveas=None):
         self.plot_heatmap(show=show, saveas=saveas)

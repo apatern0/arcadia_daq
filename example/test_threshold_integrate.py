@@ -26,6 +26,7 @@ for f in files:
 
 print("Analysis contains %d unique pixels" % len(x.pixels))
 
+x.injections = tmp.injections
 x.gcrs = tmp.gcrs
 x.pixels = results
 x.plot_heatmaps()

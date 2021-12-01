@@ -4,10 +4,8 @@ from pyarcadia.tests.threshold import ThresholdScan
 
 x = ThresholdScan()
 x.injections = 1000
-x.set_timestamp_resolution(1E-6)
-
-x.logger.setLevel(logging.WARNING)
 x.initialize()
+x.set_timestamp_resolution(1E-6)
 
 x.chip.write_gcrpar('READOUT_CLK_DIVIDER', 0)
 

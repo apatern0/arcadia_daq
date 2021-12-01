@@ -53,6 +53,7 @@ PYBIND11_MODULE(arcadia_daq, m) {
 			return fpga.chips[id];
 		})
 
+		.def("connect", &FPGAIf::connect)
 		.def("read_conf", &FPGAIf::read_conf)
 
 		.def("read_register", [](FPGAIf &fpga, std::string reg_handler) {

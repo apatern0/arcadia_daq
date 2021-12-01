@@ -132,12 +132,13 @@ class ThresholdScan(ScanTest):
         self.chip.custom_word(0xBEEFDEAD, iteration)
 
     def ctrl_phase4(self, iteration):
+        t0 = time.time()
         self.chip.read_enable(self.sections)
         for _ in range(self.injections):
             self.chip.injection_analog(self.sections)
             self.chip.injection_digital(self.sections)
 
-        self.chip.packets_idle_wait(timeout=0.5)
+        self.chip.packets_idle_wait(expected=self.maxtime, timeout=10*self.maxtime)
         self.chip.custom_word(0xCAFECAFE, iteration)
 
     def elab_phase0(self, subseq):
@@ -209,34 +210,51 @@ class ThresholdScan(ScanTest):
                     self.logger.info("Unexpected pixel in this run: %s", pix)
 
     @staticmethod
+    def _fit_inverse(x, mu, sigma):
+        return mu + sigma*np.sqrt(2)*scipy.special.erfi(2*x - 1)
+
+    @staticmethod
     def _fit(x, mu, sigma):
         return 0.5*(1+scipy.special.erf((x-mu)/(sigma*np.sqrt(2))))
 
-    @staticmethod
-    def find_baseline(x, noise, saturation):
+    def find_baseline(self, pix, show=False):
+        if pix not in self.pixels:
+            return None
+
+        pixel = self.pixels[pix]
+
+        """
         avg = 0
         total = 0
-        for index, counts in enumerate(noise):
-            avg += x[index] * counts
-            total += counts
+        for vcasn in self.range:
+            avg += vcasn * pixel.noise_hits[vcasn]
+            total += pixel.noise_hits[vcasn]
 
         if total > 0:
             avg = avg/total
             return avg
-
         """
+
+        saturation_top = pixel.saturation_hits[-1]
+        if saturation_top == 0:
+            return (np.nan, np.nan)
+
+        saturation = [min(1, i/saturation_top) for i in pixel.saturation_hits]
+
+        skip = False
         try:
-            s_opt, s_cov = scipy.optimize.curve_fit(self._fit, list(range(0,len(saturation_normalized))), saturation_normalized)
-        except RuntimeError:
-            return np.nan
-        """
+            s_opt, s_cov = scipy.optimize.curve_fit(self._fit, list(self.range), saturation)
+            err = np.amax(s_cov)
+        except (RuntimeError, ValueError):
+            skip = True
 
-        threshold = 0.1*max(saturation)
-        for index, counts in enumerate(saturation):
-            if counts >= threshold:
-                return x[index]
+        if skip:# or err > 10:
+            threshold = 0.1*max(saturation)
+            for vcasn in self.range:
+                if pixel.saturation_hits[vcasn] >= threshold:
+                    return (vcasn, 10)
 
-        return np.nan
+        return (self._fit_inverse(0.5, s_opt[0], s_opt[1]), err)
 
     def scurve_fit(self, pixels=None):
         if pixels is None:
@@ -261,8 +279,11 @@ class ThresholdScan(ScanTest):
                 s_opt, s_cov = scipy.optimize.curve_fit(self._fit, points, data)
             except (RuntimeError, ValueError):
                 pixel.baseline = np.nan
+                pixel.baseline_err = np.nan
                 pixel.gain = np.nan
+                pixel.gain_err = np.nan
                 pixel.noise = np.nan
+                pixel.noise_err = np.nan
 
                 pixel.fit_mu = np.nan
                 pixel.fit_mu_err = np.inf
@@ -276,9 +297,11 @@ class ThresholdScan(ScanTest):
             vcal_lo = self.gcrs['BIAS{}_VCAL_LO'.format(pixel.get_sec())]
             q_in = ((595+35*vcal_hi)-(560*vcal_lo))*1.1625/1000
 
-            pixel.baseline = 5*self.find_baseline(self.range, pixel.noise_hits, pixel.saturation_hits) # mV
+            (pixel.baseline, pixel.baseline_err) = [5*i for i in self.find_baseline(pixel_idx)] # mV
             pixel.gain = 5*(pixel.baseline - s_opt[0])/q_in # mV/fC
+            pixel.gain_err = 5*stderrs[0]/q_in # mV/fC assuming error-free baseline
             pixel.noise = 5*s_opt[1] # mV
+            pixel.noise_err = 5*stderrs[1] # mV
 
             pixel.fit_mu = s_opt[0]
             pixel.fit_mu_err = stderrs[0]
@@ -358,11 +381,12 @@ class ThresholdScan(ScanTest):
 
         return (xes, yes)
 
-    def plot_heatmaps(self, show=True, saveas=None, notes=None, pixels=None):
+    def plot_heatmaps(self, show=True, saveas=None, notes=None, pixels=None, cutoff=5):
         pixels = self.pixels.keys() if pixels is None else pixels
         xes, yes = self._tight_axes(pixels)
 
         hm_baseline = np.full((len(yes), len(xes)), np.nan)
+        hm_baseline_err = np.full((len(yes), len(xes)), np.nan)
         hm_gain = np.full((len(yes), len(xes)), np.nan)
         hm_gain_err = np.full((len(yes), len(xes)), np.nan)
         hm_noise = np.full((len(yes), len(xes)), np.nan)
@@ -374,44 +398,71 @@ class ThresholdScan(ScanTest):
             if 'baseline' not in p.__dict__:
                 self.scurve_fit([pix])
 
-            if p.fit_mu_err > 5 or p.fit_sigma_err > 5:
+            if p.fit_mu_err > cutoff or p.fit_sigma_err > cutoff:
                 skipped.append(pix)
                 continue
 
             hm_baseline[yes.index(pix[0]), xes.index(pix[1])] = p.baseline
+            hm_baseline_err[yes.index(pix[0]), xes.index(pix[1])] = p.baseline_err
             hm_gain[yes.index(pix[0]), xes.index(pix[1])] = p.gain
-            hm_gain_err[yes.index(pix[0]), xes.index(pix[1])] = p.fit_mu_err
+            hm_gain_err[yes.index(pix[0]), xes.index(pix[1])] = p.gain_err
             hm_noise[yes.index(pix[0]), xes.index(pix[1])] = p.noise
-            hm_noise_err[yes.index(pix[0]), xes.index(pix[1])] = p.fit_sigma_err
+            hm_noise_err[yes.index(pix[0]), xes.index(pix[1])] = p.noise_err
 
         if len(skipped) > 0:
-            print("Skipped the following pixels with errors > 5: %s" % skipped)
+            print("Skipped the following pixels with errors > %d: %s" % (cutoff, skipped))
 
         notes = self._plot_notes() + ("" if notes is None else notes)
 
+        def format_xes(x, pos):
+            if x is None:
+                return ""
+
+            return xes[math.floor(x)] if 0 <= x < len(xes) else ""
+
+        def format_yes(y, pos):
+            if y is None:
+                return ""
+
+            return yes[math.floor(y)] if 0 <= y < len(yes) else ""
+
         # Baseline
-        fig, ax1 = plt.subplots()
-        img = ax1.imshow(hm_baseline, interpolation='none')
+        fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
+        img = ax1.imshow(hm_baseline, interpolation='none', origin='lower')
+        ax1.set_title("Baseline")
         plt.colorbar(img, orientation='horizontal', ax=ax1)
+        img = ax2.imshow(hm_baseline_err, interpolation='none', origin='lower')
+        ax2.set_title("Fit error")
+        plt.colorbar(img, orientation='horizontal', ax=ax2)
+        ax1.xaxis.set_major_formatter(ticker.FuncFormatter(format_xes))
+        ax1.yaxis.set_major_formatter(ticker.FuncFormatter(format_yes))
         self._plot_footer(fig, show, saveas, 'Baseline map', notes, saveas_append="_baseline")
 
         # Gain
         fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
-        img = ax1.imshow(hm_gain, interpolation='none')
+        img = ax1.imshow(hm_gain, interpolation='none', origin='lower')
+        ax1.set_title("Gain")
         plt.colorbar(img, orientation='horizontal', ax=ax1)
-        img = ax2.imshow(hm_gain_err, interpolation='none')
+        img = ax2.imshow(hm_gain_err, interpolation='none', origin='lower')
+        ax2.set_title("Fit error")
         plt.colorbar(img, orientation='horizontal', ax=ax2)
+        ax1.xaxis.set_major_formatter(ticker.FuncFormatter(format_xes))
+        ax1.yaxis.set_major_formatter(ticker.FuncFormatter(format_yes))
         self._plot_footer(fig, show, saveas, 'Gain map', notes, saveas_append="_gain")
 
         # Noise
         fig, (ax1, ax2) = plt.subplots(1, 2, sharex=True, sharey=True)
-        img = ax1.imshow(hm_noise, interpolation='none')
+        img = ax1.imshow(hm_noise, interpolation='none', origin='lower')
+        ax1.set_title("Noise")
         plt.colorbar(img, orientation='horizontal', ax=ax1)
-        img = ax2.imshow(hm_noise_err, interpolation='none')
+        img = ax2.imshow(hm_noise_err, interpolation='none', origin='lower')
+        ax2.set_title("Fit error")
         plt.colorbar(img, orientation='horizontal', ax=ax2)
+        ax1.xaxis.set_major_formatter(ticker.FuncFormatter(format_xes))
+        ax1.yaxis.set_major_formatter(ticker.FuncFormatter(format_yes))
         self._plot_footer(fig, show, saveas, 'Noise map', notes, saveas_append="_noise")
 
-    def plot_histograms(self, show=True, saveas=None, notes=None, sections=None):
+    def plot_histograms(self, show=True, saveas=None, notes=None, sections=None, cutoff=5):
         sections = list(range(16)) if sections is None else sections
         if isinstance(sections, int):
             sections = [sections]
@@ -429,7 +480,7 @@ class ThresholdScan(ScanTest):
         for plot in plots:
             fig, axes = plt.subplots(y_subplots, x_subplots)
             for sec in sections:
-                plottable = [getattr(pixel, plot[2]) for pixel in pixels_per_sec[sec]]
+                plottable = [getattr(pixel, plot[2]) for pixel in pixels_per_sec[sec] if pixel.gain_err < cutoff and pixel.noise_err < cutoff]
                 if len(plottable) == 0:
                     continue
 

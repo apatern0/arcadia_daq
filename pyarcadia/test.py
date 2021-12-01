@@ -358,7 +358,7 @@ class Test:
 
         self.logger.warning("Timestamp alignment: FPGA: %x CHIP: %x DELTA: %x", ts_fpga, ts_chip, ts_delta)
 
-    def initialize(self, sync_not_calibrate=True, auto_read=True, iterations=1):
+    def initialize(self, sync_not_calibrate=True, auto_read=True, iterations=2):
         """Perform default test and chip initialization routines.
 
         :param bool sync_not_calibrate: Avoid to perform lanes calibration
@@ -369,6 +369,11 @@ class Test:
 
         # Load configuration
         self.load_cfg()
+
+        self.chip.enable_readout(0xffff)
+        self.chip.clock_enable(0xffff)
+        self.chip.read_enable(0xffff)
+        self.chip.injection_enable(0xffff)
 
         saved_masked = self.chip.lanes_masked
 
