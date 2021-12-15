@@ -18,7 +18,7 @@ import math
 import numpy as np
 
 from arcadia_daq import FPGAIf, ChipIf, set_ipbus_loglevel
-from .data import FPGAData
+from .data import FPGAData, Pixel
 
 set_ipbus_loglevel(0)
 
@@ -575,23 +575,35 @@ class Chip:
         """
         self.write_icr(0, onehot([8]))
 
-    def pixel_cfg(self, cfg, pixel):
+    def pixel_cfg(self, pixel, injection = True, mask=False):
         """Configure a pixel with a specific PCR value.
 
         :param int cfg: Value to configure the PCR to
 
         :param Pixel pixel: Pixel to configure
         """
-        self.pixels_cfg(
-            cfg,
-            [pixel.get_sec()],
-            [pixel.get_dcol()],
-            [pixel.get_corepr()],
-            [pixel.get_master()],
-            [pixel.get_idx()]
-        )
+        if not isinstance(pixel, list):
+            pixel = [pixel]
 
-    def pixels_cfg(self, cfg, sections = 0xffff, columns = 0xffff, prs=None, master=None, pixels = 0xf):
+        cfg = 0
+        if injection:
+            cfg |= 0b01
+
+        if mask:
+            cfg |= 0b10
+
+        for p in pixel:
+            pp = Pixel(p[0], p[1])
+            self.pcr_cfg(
+                cfg,
+                [pp.get_sec()],
+                [pp.get_dcol()],
+                [pp.get_corepr()],
+                [pp.get_master()],
+                [pp.get_idx()]
+            )
+
+    def pcr_cfg(self, cfg, sections = 0xffff, columns = 0xffff, prs=None, master=None, pixels = 0xf):
         """Configure a set of pixels with a specific PCR value.
 
         :param int|List[int] sections: Sections
@@ -651,7 +663,7 @@ class Chip:
         :param pixels: Pixels in the sub-PR
         :type pixels: int or list of ints
         """
-        self.pixels_cfg(0b11, sections, columns, prs, master, pixels)
+        self.pcr_cfg(0b11, sections, columns, prs, master, pixels)
 
     # Injection
     def send_tp(self, pulses=1, us_on=10, us_off=10):
@@ -688,8 +700,7 @@ class Chip:
         t_on = t_on-2 if (t_on > 2) else t_on
         t_off = t_off-1 if (t_off > 1) else t_off
         self.__chipif.send_pulse(int(t_on), int(t_off), pulses)
-
-        return pulses*(t_on+t_off+2+1)*31.25E-9
+        time.sleep(pulses*(t_on+t_off+2+1)*31.25E-9)
 
     # FPGA commands
     def sync(self, lanes=0xffff):

@@ -231,7 +231,7 @@ class Test:
             self.chip.noforce_injection(0xffff)
             self.chip.noforce_nomask(0xffff)
             self.chip.pixels_mask()
-            self.chip.pixels_cfg(0b01, 0xffff, [0], [0], [0], 0b1)
+            self.chip.pcr_cfg(0b01, 0xffff, [0], [0], [0], 0b1)
 
             # There still silence?
             if not self.check_stability():
@@ -303,7 +303,7 @@ class Test:
         self.chip.set_timestamp_delta(0)
 
         self.chip.pixels_mask()
-        self.chip.pixels_cfg(0b01, 0x000f, [0], [0], [0], 0xF)
+        self.chip.pcr_cfg(0b01, 0x000f, [0], [0], [0], 0xF)
         self.chip.noforce_injection()
         self.chip.noforce_nomask()
 
@@ -539,7 +539,7 @@ class Test:
         fig.tight_layout()
 
         if notes is not None:
-            plt.text(0.5, 0.1, notes, fontsize=8, ha="center", transform=plt.gcf().transFigure)
+            plt.text(0.5, 0.0, notes, fontsize=8, ha="center", transform=plt.gcf().transFigure)
             plt.subplots_adjust(bottom=0.2)
 
         if saveas is not None:
@@ -576,3 +576,6 @@ class Test:
         ax.grid()
 
         self._plot_footer(fig, show, saveas, title, notes)
+
+    def close_plots(self):
+        plt.close('all')

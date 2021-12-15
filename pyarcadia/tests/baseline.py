@@ -113,11 +113,11 @@ class BaselineScan(ScanTest):
             for data in squashed:
                 slave_hitmap = data.hitmap & 0xf
                 if slave_hitmap != 0:
-                    self.chip.pixels_cfg(0b11, [data.sec], [data.col], [data.corepr], [0], slave_hitmap)
+                    self.chip.pcr_cfg(0b11, [data.sec], [data.col], [data.corepr], [0], slave_hitmap)
 
                 master_hitmap = (data.hitmap >> 4) & 0xf
                 if master_hitmap != 0:
-                    self.chip.pixels_cfg(0b11, [data.sec], [data.col], [data.corepr], [1], master_hitmap)
+                    self.chip.pcr_cfg(0b11, [data.sec], [data.col], [data.corepr], [1], master_hitmap)
 
                 pixels = data.get_pixels()
 

@@ -100,7 +100,7 @@ for pr in range(start, 128, pr_step):
     print("After initialization: %.3f MB" % (get_size(x)/1E6))
 
     x.chip.pixels_mask()
-    x.chip.pixels_cfg(0b01, list(range(0, 16, sec_step)), list(range(0, 16, col_step)), [pr], [0], [0])
+    x.chip.pcr_cfg(0b01, list(range(0, 16, sec_step)), list(range(0, 16, col_step)), [pr], [0], [0])
 
     x.run()
 

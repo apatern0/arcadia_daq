@@ -8,7 +8,7 @@ x.logger.setLevel(logging.WARNING)
 x.initialize()
 
 x.chip.pixels_mask()
-x.chip.pixels_cfg(0b01, 0xffff, [0], [0], [0], 0x0001)
+x.chip.pcr_cfg(0b01, 0xffff, [0], [0], [0], 0x0001)
 
 for i in range(16):
     x.chip.write_gcrpar('BIAS%d_VCASN' % i, 35)

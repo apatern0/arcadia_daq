@@ -14,10 +14,10 @@ class ThresholdScan(ScanTest):
     th = 1
     sections = []
     axes = ["VCASN (#)", "Hits (#)"]
-    injections = 200
+    injections = 400
 
-    tp_on = 10
-    tp_off = 10
+    tp_on = 100
+    tp_off = 900
 
     def __init__(self, log=False):
         super().__init__()
@@ -295,7 +295,7 @@ class ThresholdScan(ScanTest):
 
             vcal_hi = self.gcrs['BIAS{}_VCAL_HI'.format(pixel.get_sec())]
             vcal_lo = self.gcrs['BIAS{}_VCAL_LO'.format(pixel.get_sec())]
-            q_in = ((595+35*vcal_hi)-(560*vcal_lo))*1.1625/1000
+            q_in = (595 + 35*vcal_hi - 560*vcal_lo)*1.1625/1000
 
             (pixel.baseline, pixel.baseline_err) = [5*i for i in self.find_baseline(pixel_idx)] # mV
             pixel.gain = 5*(pixel.baseline - s_opt[0])/q_in # mV/fC

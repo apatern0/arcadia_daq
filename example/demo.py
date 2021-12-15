@@ -21,7 +21,7 @@ else:
     x.chip.write_gcrpar('READOUT_CLK_DIVIDER', 0)
 
     x.chip.pixels_mask()
-    x.chip.pixels_cfg(0b01, 0xffff, [0], [0], [0], [0])
+    x.chip.pcr_cfg(0b01, 0xffff, [0], [0], [0], [0])
 
     for i in range(16):
         x.chip.write_gcrpar('BIAS{}_VCAL_LO'.format(i), 0)
