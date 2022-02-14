@@ -246,7 +246,7 @@ class Chip:
                 break
 
             elapsed = time.time() - t0
-            if timeout is not None and expected < elapsed > timeout:
+            if timeout is not None and (elapsed > expected or elapsed > timeout):
                 self.read_disable()
 
             time.sleep(step)

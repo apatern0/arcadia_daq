@@ -193,7 +193,7 @@ class ChipData:
     :param Sequence sequence: Optional, sequence the data belongs to
     """
 
-    fpga_packet: FPGAData
+    fpga_packet: FPGAData = None
     sequence: 'Sequence' = None
 
     def __post_init__(self):

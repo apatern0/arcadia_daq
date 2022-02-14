@@ -16,8 +16,8 @@ class ThresholdScan(ScanTest):
     axes = ["VCASN (#)", "Hits (#)"]
     injections = 400
 
-    tp_on = 100
-    tp_off = 900
+    tp_on = 200
+    tp_off = 800
 
     def __init__(self, log=False):
         super().__init__()
@@ -91,7 +91,7 @@ class ThresholdScan(ScanTest):
         packet_time = (2**self.chip.read_gcrpar('READOUT_CLK_DIVIDER'))*20/self.fpga.clock_hz
         injection_time = (self.tp_on+self.tp_off)*1E-6
 
-        self.maxtime = max(packet_time, injection_time) * max(per_sec) * self.injections
+        self.maxtime = 10* max(packet_time, injection_time) * max(per_sec) * self.injections
 
         print("Expecting a maximum of %d packets per section. Max readout time should be: %d us" % (max(per_sec), self.maxtime*1E6))
 
@@ -114,21 +114,21 @@ class ThresholdScan(ScanTest):
         self.chip.read_enable(self.sections)
         self.chip.injection_digital(self.sections)
         self.chip.send_tp(2, self.tp_on, self.tp_off)
-        self.chip.packets_idle_wait(expected=self.maxtime, timeout=10*self.maxtime)
+        self.chip.packets_idle_wait(expected=self.maxtime, timeout=100*self.maxtime)
         self.chip.custom_word(0xBEEFBEEF, iteration)
 
     def ctrl_phase2(self, iteration):
         self.chip.injection_analog(self.sections)
         self.chip.read_enable(self.sections)
         self.chip.send_tp(self.injections, self.tp_on, self.tp_off)
-        self.chip.packets_idle_wait(expected=self.maxtime, timeout=10*self.maxtime)
+        self.chip.packets_idle_wait(expected=self.maxtime, timeout=100*self.maxtime)
         self.chip.custom_word(0xDEADBEEF, iteration)
 
     def ctrl_phase3(self, iteration):
         self.chip.read_enable(self.sections)
         time.sleep(1E-3)
         self.chip.read_disable()
-        self.chip.packets_idle_wait(expected=self.maxtime, timeout=10*self.maxtime)
+        self.chip.packets_idle_wait(expected=self.maxtime, timeout=100*self.maxtime)
         self.chip.custom_word(0xBEEFDEAD, iteration)
 
     def ctrl_phase4(self, iteration):
@@ -138,7 +138,7 @@ class ThresholdScan(ScanTest):
             self.chip.injection_analog(self.sections)
             self.chip.injection_digital(self.sections)
 
-        self.chip.packets_idle_wait(expected=self.maxtime, timeout=10*self.maxtime)
+        self.chip.packets_idle_wait(expected=self.maxtime, timeout=100*self.maxtime)
         self.chip.custom_word(0xCAFECAFE, iteration)
 
     def elab_phase0(self, subseq):

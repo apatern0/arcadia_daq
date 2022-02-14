@@ -3,7 +3,7 @@ from pyarcadia.data import ChipData, TestPulse
 from pyarcadia.tests.threshold import ThresholdScan
 
 x = ThresholdScan()
-x.injections = 500
+x.injections = 100
 x.initialize()
 x.set_timestamp_resolution(1E-6)
 

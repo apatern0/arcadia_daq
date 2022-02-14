@@ -58,20 +58,19 @@ else:
         pass
 
 x.chip.packets_read_start()
-t0 = time.time()
-rate_inf = 0
-rate_min = [0 for i in range(0, 60)]
 iteration = -1
 try:
     while True:
         iteration += 1
-        elapsed = time.time() - t0
-        print("Iteration %4d @ %7d s: " % (iteration, elapsed), end="")
 
-        # Inject random charge if enabled
-        if inject_random is not False:
-            if random.random() < inject_random:
-                x.chip.send_tp()
+        x.chip.write_gcrpar("READOUT_CLK_DIVIDER", iteration)
+        time.sleep(1)
+
+        elapsed = autoscale( 1/4e6 * ( 2** iteration) )
+        print(f"Iteration {iteration} - Read every {elapsed}s: ", end="")
+
+        x.chip.packets_reset()
+        x.chip.send_tp(pulses=50, us_on=1, us_off=1)
 
         # If too many packets, abort
         if x.chip.packets_count() > 1E3:
@@ -84,14 +83,9 @@ try:
         data = a.get_data()
         data_count = len(data)
 
-        # Update rates
-        rate_min[iteration % 60] = data_count
-        rate_inf = (rate_inf*iteration + data_count)/(iteration+1)
-
-        # Evaluate 10s, 1m rates
-        rate_10s = sum(rate_min[iteration-10:iteration])/10
-        rate_1m = sum(rate_min)/60
-        print(f"Dark rates - 10s: {autoscale(rate_10s)}Hz, 1m: {autoscale(rate_1m)}Hz, inf: {autoscale(rate_inf)}Hz")
+        print(f"Data count: {data_count}. Dump:")
+        a.dump()
+        print("")
         
         time.sleep(1)
 

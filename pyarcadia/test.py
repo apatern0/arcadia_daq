@@ -462,7 +462,7 @@ class Test:
         """
 
         listed = []
-        listed.append(self.gcrs)
+        listed.append(self.gcrs if self.gcrs is not None else self.chip.dump_gcrs(False))
         listed.extend(self.serialize())
 
         idx = 0

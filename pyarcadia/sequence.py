@@ -1,7 +1,11 @@
+import os
 import time
 import math
 import bisect
 import threading
+import json
+import codecs
+import numpy as np
 from tabulate import tabulate
 """
 from tqdm import tqdm
@@ -9,7 +13,7 @@ print = tqdm.write
 """
 
 from .daq import Chip
-from .data import ChipData, TestPulse, CustomWord
+from .data import FPGAData, ChipData, TestPulse, CustomWord
 
 class SubSequence:
     """A SubSequence is a chain of data packets received from the FPGA
@@ -79,6 +83,13 @@ class SubSequence:
         """Extends the current SubSequence with another one
         :param SubSequence other: SubSequence whose packets will be imported
         """
+        for packet in other._queue:
+            if isinstance(packet, (TestPulse, ChipData)):
+                packet.ts_sw += self.ts_sw
+                packet.extend_timestamp()
+
+        self.ts_sw += other.ts_sw
+
         self._queue.extend(other._queue)
 
     def squash_data(self, threads=None):
@@ -202,6 +213,36 @@ class SubSequence:
 
         return self._queue.pop(item)
 
+    def clusterize(self, hamming=2):
+        pixels = []
+        for packet in self.get_data():
+            for pixel in packet.get_pixels():
+                pixels.append( (pixel.row, pixel.col) )
+
+        clusters = []
+
+        # Until the pixels have all been checked
+        while len(pixels) > 0:
+            cluster = [pixels[0]]
+            pixel_idx = 0
+
+            # For every cluster
+            while pixel_idx < len(cluster):
+                for row_delta in range(-hamming, hamming+1):
+                    for col_delta in range(-hamming, hamming+1):
+                        row, col = cluster[pixel_idx]
+                        needle = (row+row_delta, col+col_delta)
+
+                        if needle in pixels:
+                            cluster.append(needle)
+                            pixels.remove(needle)
+
+                pixel_idx += 1
+
+            clusters.append(cluster)
+
+        return clusters
+
     def filter_double_injections(self, us_on=10, fe_ntol=4, fe_ptol=4, tp_ntol=4, tp_ptol=1):
         """Filters spurious injections due to the falling edge of the
         Test Pulse coupling with the injection circuitry in the FEs.
@@ -314,6 +355,45 @@ class SubSequence:
 
         print("Dumping %s:" % self)
         print(tabulate(toprint, headers=["#", "Timestamp", "Item"]))
+
+    def load(self, filename):
+        """Loads the packets from a file.
+
+        :param string filename: File to read the packets from
+        """
+        if not os.path.exists(filename):
+            print("Unable to load %s. Not found." % filename)
+            return
+
+        with codecs.open(filename, 'r', encoding='utf-8') as handle:
+            try:
+                contents = json.loads(handle.read())
+            except json.decoder.JSONDecodeError:
+                return
+
+        if len(contents) == 0:
+            return
+
+        self.gcrs = contents.pop(0)
+
+        seq = self if self.parent is None else self.parent
+        for packet in contents:
+            elaborated = FPGAData(packet).elaborate(seq)
+            if elaborated is not None:
+                self.append(elaborated)
+
+    def save(self, saveas):
+        words = []
+
+        if self.parent is not None and self.parent.chip is not None:
+            words.append(self.parent.chip.dump_gcrs(False))
+        else:
+            words.append([])
+
+        for packet in self._queue:
+            words.append(packet.fpga_packet.word)
+
+        json.dump(words, codecs.open(saveas, 'w', encoding='utf-8'), separators=(',', ':'), sort_keys=True, indent=4)
 
 
 class Sequence:
@@ -531,10 +611,15 @@ class Sequence:
         else:
             self._queue.extend(other._queue)
 
-        """
-        print("New sequence %s:" % self)
-        for i in self._queue:
-            print("--%s" % i)
-            for j in i._queue:
-                print("----%s" % j)
-        """
+    def append_subsequence(self, other):
+        # Timestamp adjustment
+        other.parent = self
+
+        for packet in other._queue:
+            if isinstance(packet, (TestPulse, ChipData)):
+                packet.ts_sw += self.ts_sw
+                packet.extend_timestamp()
+
+        self.ts_sw += other.ts_sw
+
+        self._queue.append(other)
