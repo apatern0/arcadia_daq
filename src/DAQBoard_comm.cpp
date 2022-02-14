@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <stdexcept>
 #include <chrono>
+#include <thread>
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
@@ -371,6 +372,8 @@ void ChipIf::fifo_read_loop() {
 	size_t total_packets = 0;
 
 	while (run_flag) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
 		/*
 		 * Check timeouts
 		 */

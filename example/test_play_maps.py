@@ -35,6 +35,7 @@ warnings.simplefilter('ignore')
 
 class Cluster:
     time = None
+    swtime = None
     pixels = []
     patch = None
     to_remove = False
@@ -196,16 +197,18 @@ img_cleaned = ax_cleaned.imshow(res_cleaned, interpolation='none', origin='lower
 cbar_last = plt.colorbar(img_last, orientation='horizontal', ax=ax_last)
 cbar_incr = plt.colorbar(img_incr, orientation='horizontal', ax=ax_incr)
 cbar_cleaned = plt.colorbar(img_cleaned, orientation='horizontal', ax=ax_cleaned)
+plt.show()
 
-fig_hist = plt.figure()
-_, _, times_hist = plt.hist([0 for _ in range(20)], bins=np.arange(20), density=True)
-times_fit = plt.plot(np.arange(20), [0 for _ in range(20)])
+fig_hist, ax_hist = plt.subplots(1, 1, tight_layout=True)
+_, _, times_hist = ax_hist.hist([0 for _ in range(20)], bins=np.arange(20), density=True)
+times_fit = ax_hist.plot(np.arange(20), [0 for _ in range(20)])
 plt.ylim([0, 1])
 plt.ylabel('Probability')
 plt.xlabel(f"Time between events (s)")
 timing_fit = ""
 
 plt.show()
+
 
 def visualize(new_clusters, clusters_removed, elapsed):
     # Remove old clusters
@@ -248,10 +251,10 @@ def histo_times():
     global times_hist, times, times_fit
 
     # Remove old plots
-    fig_hist.clear()
+    ax_hist.clear()
 
     # New plot
-    heights, bins, times_hist = plt.hist(times, bins=np.arange(20), density=True)
+    heights, bins, times_hist = ax_hist.hist(times, bins=np.arange(20), density=True)
 
     # calculate bin centres
     bin_middles = 0.5 * (bins[1:] + bins[:-1])
@@ -265,7 +268,7 @@ def histo_times():
         parameters, cov_matrix = curve_fit(fit_function, bin_middles, heights)
 
         # plot poisson-deviation with fitted parameter
-        plt.plot(
+        ax_hist.plot(
             np.arange(20)+0.5,
             fit_function(bins, *parameters),
             marker='o', linestyle='',
@@ -283,7 +286,7 @@ def histo_times():
 t = Test()
 
 if filename is False:
-    t.initialize()
+    t.initialize(auto_read=False)
     t.set_timestamp_resolution(resolution)
 else:
     t.set_timestamp_resolution(resolution, False)
@@ -321,20 +324,10 @@ if filename is False:
     time.sleep(0.05)
     t.chip.pixel_cfg((0, 64), injection=True, mask=False)
 
-    # Verify that no hits are read out
-    t.chip.packets_reset()
-    t.chip.send_tp()
-    a = SubSequence( t.chip.readout(50) )
-    if len(a) == 2:
-        print("One packet have been read. Good!")
-    else:
-        print("Spurious packets have been detected:")
-        a.dump()
-        print("Press CTRL-C to resume.")
-        try:
-            time.sleep(999999)
-        except KeyboardInterrupt:
-            pass
+    while t.chip.packets_count() > 0:
+        print("Waiting for packets to drop...")
+        t.chip.packets_reset()
+        time.sleep(0.5)
 
     time.sleep(0.05)
     t.chip.packets_reset()
@@ -466,6 +459,7 @@ while True:
 
             # Got it!
             newcl = Cluster()
+            newcl.swtime = time.time()
             newcl.time = None
             newcl.pixels = list(set(cluster_pixels))
             newcl.update_size()
@@ -528,6 +522,7 @@ while True:
         for idx in reversed(to_replace):
             for x,y in cluster_history[idx].pixels:
                 res_cleaned[x][y] -= 1
+
             del cluster_history[idx]
 
         # Update view!
@@ -541,18 +536,19 @@ while True:
             rate_1m_f = 0; rate_1m_f_pix = 0
             rate_5m_f = 0; rate_5m_f_pix = 0
             rate_1h_f = 0; rate_1h_f_pix = 0
+
             for cluster in reversed(cluster_history):
-                if cluster.time < this_time-60*60:
+                if cluster.swtime < this_time-60*60:
                     break
 
-                if cluster.time > this_time-60:
+                if cluster.swtime > this_time-60:
                     rate_1m += 1
                     rate_1m_pix += len(cluster.pixels)
                     if not cluster.blob:
                         rate_1m_f += 1
                         rate_1m_f_pix += len(cluster.pixels)
 
-                if cluster.time > this_time-60*5:
+                if cluster.swtime > this_time-60*5:
                     rate_5m += 1
                     rate_5m_pix += len(cluster.pixels)
                     if not cluster.blob:
