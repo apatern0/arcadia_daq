@@ -2,7 +2,7 @@ inject_random = False # in Hz
 cluster_time_us = 1E3
 fading_time_us = 20E6
 hamming = 5
-refresh_time_us = 100E3
+refresh_time_us = 5
 blob_min_radius = 2
 resolution = 0.25E-6
 speed = 1
@@ -199,12 +199,14 @@ cbar_incr = plt.colorbar(img_incr, orientation='horizontal', ax=ax_incr)
 cbar_cleaned = plt.colorbar(img_cleaned, orientation='horizontal', ax=ax_cleaned)
 plt.show()
 
-fig_hist, ax_hist = plt.subplots(1, 1, tight_layout=True)
-_, _, times_hist = ax_hist.hist([0 for _ in range(20)], bins=np.arange(20), density=True)
-times_fit = ax_hist.plot(np.arange(20), [0 for _ in range(20)])
+fig_hist, (ax_cltime, ax_clsize) = plt.subplots(1, 2, tight_layout=True)
+_, _, times_hist = ax_cltime.hist([0 for _ in range(20)], bins=np.arange(20), density=True)
+times_fit = ax_cltime.plot(np.arange(20), [0 for _ in range(20)])
 plt.ylim([0, 1])
-plt.ylabel('Probability')
-plt.xlabel(f"Time between events (s)")
+ax_cltime.set_ylabel('Probability')
+ax_cltime.set_xlabel(f"Time between events (s)")
+ax_clsize.set_ylabel('Number of clusters')
+ax_clsize.set_xlabel(f"Cluster size in pixels")
 timing_fit = ""
 
 plt.show()
@@ -251,10 +253,18 @@ def histo_times():
     global times_hist, times, times_fit
 
     # Remove old plots
-    ax_hist.clear()
+    ax_cltime.clear()
+    ax_clsize.clear()
+
+    sizes = [len(cl.pixels) for cl in cluster_history]
+    heights, bins, times_hist = ax_clsize.hist(sizes, bins=np.arange(30))
+
+    #
+    # Time between clusters
+    #
 
     # New plot
-    heights, bins, times_hist = ax_hist.hist(times, bins=np.arange(20), density=True)
+    heights, bins, times_hist = ax_cltime.hist(times, bins=np.arange(20), density=True)
 
     # calculate bin centres
     bin_middles = 0.5 * (bins[1:] + bins[:-1])
@@ -268,7 +278,7 @@ def histo_times():
         parameters, cov_matrix = curve_fit(fit_function, bin_middles, heights)
 
         # plot poisson-deviation with fitted parameter
-        ax_hist.plot(
+        ax_cltime.plot(
             np.arange(20)+0.5,
             fit_function(bins, *parameters),
             marker='o', linestyle='',
@@ -278,6 +288,11 @@ def histo_times():
         timing_fit = "Timing dispersion fit w/ poissonian distribution: mu = %ss +- %ss" % (autoscale(parameters[0]), autoscale(math.sqrt(cov_matrix[0][0])))
     except (RuntimeError, ValueError, scipy.optimize.OptimizeWarning):
         pass
+
+    ax_cltime.set_ylabel('Probability')
+    ax_cltime.set_xlabel(f"Time between events (s)")
+    ax_clsize.set_ylabel('Number of clusters')
+    ax_clsize.set_xlabel(f"Cluster size in pixels")
 
     fig_hist.canvas.draw()
     fig_hist.canvas.start_event_loop(refresh_time_us*1E-6)
@@ -324,10 +339,11 @@ if filename is False:
     time.sleep(0.05)
     t.chip.pixel_cfg((0, 64), injection=True, mask=False)
 
-    while t.chip.packets_count() > 0:
-        print("Waiting for packets to drop...")
-        t.chip.packets_reset()
-        time.sleep(0.5)
+    if False:
+        while t.chip.packets_count() > 0:
+            print("Waiting for packets to drop...")
+            t.chip.packets_reset()
+            time.sleep(0.5)
 
     time.sleep(0.05)
     t.chip.packets_reset()

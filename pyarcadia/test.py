@@ -6,6 +6,7 @@ import configparser
 import os
 import codecs
 import json
+import csv
 import datetime
 import matplotlib
 import matplotlib.pyplot as plt
@@ -453,16 +454,85 @@ class Test:
         self.gcrs = self.chip.dump_gcrs(False)
         self._run()
 
-    def save(self, saveas=None):
+    def savecsv(self, saveas=None):
         """Saves the GCR configuration and test results to file. If the filename is not
         provided, the results will be saved into date folders, and incrementally indexed
         timed files in those folders.
 
         :param string saveas: (Optional) File to save the results to
         """
-
         listed = []
-        listed.append(self.gcrs if self.gcrs is not None else self.chip.dump_gcrs(False))
+        idx = 0
+
+        if saveas is None:
+            folder = "results__" + datetime.datetime.now().strftime("%d_%m_%Y")
+            if not os.path.exists(folder):
+                os.mkdir(folder)
+
+            # Get run idx
+            files = os.listdir(folder)
+            last_idx = -1
+            for filename in files:
+                if not os.path.isfile(os.path.join(folder, filename)):
+                    continue
+
+                if not filename.startswith("run__"):
+                    continue
+
+                try:
+                    nextunder = filename[5:].index("_")
+                except ValueError:
+                    continue
+
+                idx = int(filename[5:(5+nextunder)])
+                if idx > last_idx:
+                    last_idx = idx
+
+            idx = last_idx+1
+
+            time = datetime.datetime.now().strftime("%H_%M_%S")
+            saveas = os.path.join(folder, "run__" + str(idx) + "__" + time + ".csv")
+        
+            listed.append(self.gcrs if self.gcrs is not None else self.chip.dump_gcrs(False))
+        else:
+            if not os.path.exists(saveas):
+                print("Unable to load %s. Not found." % saveas)
+                return
+
+        listed.extend(self.serialize())
+
+        with codecs.open(saveas, 'a', encoding='utf-8') as csvfile:
+            spamwriter = csv.writer(csvfile, delimiter=',')
+            spamwriter.writerow(listed)
+
+        return saveas 
+
+    def save(self, saveas=None, extend_from=None):
+        """Saves the GCR configuration and test results to file. If the filename is not
+        provided, the results will be saved into date folders, and incrementally indexed
+        timed files in those folders.
+
+        :param string saveas: (Optional) File to save the results to
+        """
+        listed = []
+
+        if extend_from is None:
+            listed.append(self.gcrs if self.gcrs is not None else self.chip.dump_gcrs(False))
+        else:
+            if not os.path.exists(extend_from):
+                print("Unable to load %s. Not found." % filename)
+                return
+
+            with codecs.open(extend_from, 'r', encoding='utf-8') as handle:
+                try:
+                    listed = json.loads(handle.read())
+                except json.decoder.JSONDecodeError:
+                    print("Unable to decode %s." % filename)
+                    return
+
+                if len(listed) == 0:
+                    return
+        
         listed.extend(self.serialize())
 
         idx = 0
@@ -501,6 +571,28 @@ class Test:
         return saveas 
 
     def load(self, filename):
+        """Loads the GCR configuration and test results from a file.
+
+        :param string filename: File to read the results from
+        """
+        if not os.path.exists(filename):
+            print("Unable to load %s. Not found." % filename)
+            return
+
+        with codecs.open(filename, 'r', encoding='utf-8') as handle:
+            try:
+                contents = json.loads(handle.read())
+            except json.decoder.JSONDecodeError:
+                return
+
+            if len(contents) == 0:
+                return
+
+            self.gcrs = contents.pop(0)
+
+            self.deserialize(contents)
+
+    def loadcsv(self, filename):
         """Loads the GCR configuration and test results from a file.
 
         :param string filename: File to read the results from
