@@ -372,7 +372,7 @@ void ChipIf::fifo_read_loop() {
 	size_t total_packets = 0;
 
 	while (run_flag) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		std::this_thread::sleep_for(std::chrono::microseconds(100));
 
 		/*
 		 * Check timeouts
@@ -506,11 +506,12 @@ uint32_t ChipIf::calibrate_deserializers(bool verbose) {
 			send_controller_command(ss.str(), tap_val, NULL);
 		}
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		send_controller_command("syncTX", 0xffff, NULL);
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		send_controller_command("resetCounters", 1, NULL);
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		send_controller_command("resetCounters", 1, NULL);
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
 		uint32_t locked;
 		send_controller_command("readTxState", 0, &locked);

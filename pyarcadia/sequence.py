@@ -31,7 +31,7 @@ class SubSequence:
     def __init__(self, packets=None, parent=None, init_ts_sw=None):
         self._queue = []
         self.parent = parent
-        self.ts_sw = 0 if init_ts_sw is not None else init_ts_sw
+        self.ts_sw = 0 if init_ts_sw is None else init_ts_sw
 
         seq = self if parent is None else parent
 

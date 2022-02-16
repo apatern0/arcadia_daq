@@ -81,7 +81,7 @@ class Cluster:
 
         return False
 
-incr_cmap = matplotlib.cm.get_cmap("hsv").copy()
+incr_cmap = matplotlib.cm.get_cmap("gist_rainbow").copy()
 incr_cmap.set_bad('white',1.)
 last_cmap = matplotlib.cm.get_cmap("viridis").copy()
 last_cmap.set_bad('white',1.)
