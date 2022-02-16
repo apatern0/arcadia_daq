@@ -12,7 +12,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import tqdm
 
-from .daq import Fpga, Chip, onecold
 from .sequence import Sequence, SubSequence
 from .data import ChipData, TestPulse
 
@@ -42,9 +41,16 @@ class Test:
     chip_timestamp_divider = 0
     lanes_excluded = []
 
-    def __init__(self):
-        self.fpga = Fpga()
-        self.chip = self.fpga.get_chip(0)
+    def __init__(self, no_hw=False):
+        if not no_hw:
+            from .daq import Fpga, Chip, onecold
+            self.fpga = Fpga()
+            self.chip = self.fpga.get_chip(0)
+            self.chip.logger = self.logger
+        else:
+            self.fpga = None
+            self.chip = None
+
         self.sequence = Sequence(chip=self.chip)
 
         self.title = ''
@@ -59,9 +65,6 @@ class Test:
             self.logger.addHandler(ch)
 
         self.result = None
-
-        # Initialize Chip
-        self.chip.logger = self.logger
 
     def load_cfg(self):
         """Loads chip-wide configuration from a chip.ini file
@@ -85,24 +88,24 @@ class Test:
             stm = [int(x) for x in stm]
             self.chip.lanes_masked = stm
 
-    def set_timestamp_resolution(self, res_s, update_hw=True):
+    def set_timestamp_resolution(self, res_s, update_hw=True, clk_freq=None):
         """Configures the timestamp resolution on both the chip and the FPGA.
         :param int res_s: Timestamp resolution in seconds
         """
 
-        chip_clock_divider = math.log((self.fpga.clock_hz * res_s)/10, 2)
+        clk_freq = clk_freq if clk_freq is not None else self.fpga.clock_hz
+
+        chip_clock_divider = math.log((clk_freq * res_s)/10, 2)
         if math.floor(chip_clock_divider) != chip_clock_divider:
             raise ValueError('Chip Clock Divider can\'t be set to non-integer value: %.3f' % chip_clock_divider)
         chip_clock_divider = math.floor(chip_clock_divider)
         self.logger.info('Chip clock divider: %d', chip_clock_divider)
 
-        fpga_clock_divider = (self.fpga.clock_hz * res_s) -1
+        fpga_clock_divider = (clk_freq * res_s) -1
         if math.floor(fpga_clock_divider) != fpga_clock_divider:
             raise ValueError('FPGA Clock Divider can\'t be set to non-integer value: %.3f' % fpga_clock_divider)
         fpga_clock_divider = math.floor(fpga_clock_divider)
         self.logger.info('Fpga clock divider: %d', fpga_clock_divider)
-
-        Chip.ts_us = res_s*1E6
 
         self.chip_timestamp_divider = chip_clock_divider
 
@@ -602,15 +605,17 @@ class Test:
             return
 
         with codecs.open(filename, 'r', encoding='utf-8') as handle:
-            try:
-                contents = json.loads(handle.read())
-            except json.decoder.JSONDecodeError:
-                return
+            csv_reader = csv.reader(handle, delimiter=',')
+
+            self.gcrs = next(csv_reader)
+        
+            contents = []
+            for frame in csv_reader:
+                for packet in frame:
+                    contents.append(packet)
 
             if len(contents) == 0:
                 return
-
-            self.gcrs = contents.pop(0)
 
             self.deserialize(contents)
 

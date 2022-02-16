@@ -318,7 +318,7 @@ if filename is False:
     t.initialize(auto_read=False)
     t.set_timestamp_resolution(resolution)
 else:
-    t.set_timestamp_resolution(resolution, False)
+    t.set_timestamp_resolution(resolution, False, clk_freq=80E6)
 
 for sec in t.lanes_excluded:
     res_cleaned[:, sec*32:(sec+1)*32-1] = np.nan
