@@ -2,10 +2,10 @@ inject_random = False # in Hz
 cluster_time_us = 1E3
 fading_time_us = 20E6
 hamming = 5
-refresh_time_us = 5
+refresh_time_us = 0.1
 blob_min_radius = 2
 resolution = 0.25E-6
-speed = 1
+speed = 0.01
 save_min = 1
 fe_alpide = True
 cluster_analysis = False
@@ -35,6 +35,8 @@ from scipy.stats import poisson
 #plt.style.use('seaborn-pastel')
 #matplotlib.use("Qt5agg")
 warnings.simplefilter('ignore')
+
+past = None 
 
 class Cluster:
     time = None
@@ -93,20 +95,27 @@ def deserialize(self, words):
     print("Deserializing %d words" % len(words))
 
     for word in words:
+        if len(word) == 0:
+            continue
+
+        word = word[1:-2]
+        word = word.split(", ")
+
         packet = ChipData()
-        (
-            packet.bottom,
-            packet.hitmap,
-            packet.corepr,
-            packet.col,
-            packet.sec,
-            packet.ser,
-            packet.falling,
-            packet.ts,
-            packet.ts_fpga,
-            packet.ts_sw,
-            packet.ts_ext
-        ) = word
+        try:
+            packet.bottom = int(word[0])
+            packet.hitmap = int(word[1])
+            packet.corepr = int(word[2])
+            packet.col = int(word[3])
+            packet.sec = int(word[4])
+            packet.ser = int(word[5])
+            packet.falling = (word[6] == 'True')
+            packet.ts = int(word[7])
+            packet.ts_fpga = int(word[8])
+            packet.ts_sw = int(word[9])
+            packet.ts_ext = int(word[10])
+        except ValueError:
+            continue
 
         self.packets.append(packet)
 
@@ -203,7 +212,7 @@ cbar_cleaned = plt.colorbar(img_cleaned, orientation='horizontal', ax=ax_cleaned
 plt.show()
 
 fig_hist, (ax_cltime, ax_clsize) = plt.subplots(1, 2, tight_layout=True)
-_, _, times_hist = ax_cltime.hist([0 for _ in range(20)], bins=np.arange(20), density=True)
+_, _, times_hist = ax_cltime.hist([0 for _ in range(20)], bins=30)
 times_fit = ax_cltime.plot(np.arange(20), [0 for _ in range(20)])
 plt.ylim([0, 1])
 ax_cltime.set_ylabel('Probability')
@@ -357,7 +366,32 @@ if filename is False:
     t.chip.packets_read_start()
     t.packets = SubSequence()
 else:
-    t.load(filename)
+    t.loadcsv(filename)
+    replay = [SubSequence()]
+
+    epoch = 0
+    for p in t.packets:
+        if p.ts_ext*resolution > epoch+0.1:
+            epoch += 0.1
+            print(f"New epoch:  {epoch}. Collected {len(replay[-1])} packets")
+            replay.append(SubSequence())
+
+        replay[-1].append(p)
+
+    print(f"Arrived to {epoch*10} s.") 
+
+    """
+    fig_hist, (ax_cltime, ax_clsize) = plt.subplots(1, 2, tight_layout=True)
+    _, _, times_hist = ax_cltime.hist(times, bins=30)
+    times_fit = ax_cltime.plot(np.arange(20), [0 for _ in range(20)])
+    plt.ylim([0, 1])
+    ax_cltime.set_ylabel('Probability')
+    ax_cltime.set_xlabel(f"Time between events (s)")
+    ax_clsize.set_ylabel('Number of clusters')
+    ax_clsize.set_xlabel(f"Cluster size in pixels")
+    timing_fit = ""
+    plt.show()
+    """
 
 alive = True
 slept = 0
@@ -369,6 +403,7 @@ cluster_history = []
 last_report = time.time()
 last_save = time.time()
 start_time = time.time()
+last_time = time.time()
 last_pixels = []
 current_pixels = []
 
@@ -376,40 +411,50 @@ if filename is not False:
     init_ts = t.packets[0].ts_ext
     init_time = time.time()
 
+last_ts_sw = None
 while True:
     try:
         new_pixels = []
         new_pixels_times = {}
 
         if filename is False:
-            current = SubSequence( t.chip.readout() )
+            current = SubSequence( t.chip.readout(), init_ts_sw=last_ts_sw )
+            last_ts_sw = current.ts_sw
             this_time = time.time()
 
             t.packets = current
             last_save_file = t.savecsv(last_save_file)
         else:
+            """
             if not hasattr(t, 'packets') or len(t.packets) == 0:
                 break
 
-            current = SubSequence()
             elapsed_real = time.time() - init_time
+            elapsed_sim = (t.packets[0].ts_ext - init_ts)*resolution/speed
+            """
 
-            while len(t.packets) > 0:
-                elapsed_sim = (t.packets[0].ts_ext - init_ts)*resolution/speed
+            if len(replay) == 0:
+                break
 
-                if elapsed_real < elapsed_sim + refresh_time_us*1E-6:
-                    #print("Postponing, next packet is in %d secs" % (elapsed_sim-elapsed_real))
-                    time.sleep(refresh_time_us*1E-6)
-                    break
-
-                current.append(t.packets.pop(0))
-
+            current = replay.pop(0)
+            """
+            if time.time() - last_time < 0.
+            last_time = time.time()
             this_time = elapsed_sim
+            """
+
+            this_time = time.time()
+
+        print("Reading %d packets" % len(current))
 
         if len(current) > 0:
             current_pixels = []
             already_hit = {}
             for packet in current:
+                if past_time is not None:
+                    times.append(packet.ts_ext - past_time)
+                past_time = packet.ts_ext
+
                 pixels = packet.get_pixels()
 
                 for pixel in pixels:

@@ -12,7 +12,6 @@ from tqdm import tqdm
 print = tqdm.write
 """
 
-from .daq import Chip
 from .data import FPGAData, ChipData, TestPulse, CustomWord
 
 class SubSequence:
@@ -29,10 +28,10 @@ class SubSequence:
     complete = False
     _queue = None
 
-    def __init__(self, packets=None, parent=None):
+    def __init__(self, packets=None, parent=None, init_ts_sw=None):
         self._queue = []
         self.parent = parent
-        self.ts_sw = 0
+        self.ts_sw = 0 if init_ts_sw is not None else init_ts_sw
 
         seq = self if parent is None else parent
 
@@ -256,6 +255,8 @@ class SubSequence:
             raise RuntimeError("The Sequence doesn't have a valid linked Chip. Unable to continue")
 
         # t_on is in FPGA CCs. Translate into timestamp counts
+    
+        from .daq import Chip
         ts_delta = int(us_on/Chip.ts_us)
 
         t0 = time.time()
