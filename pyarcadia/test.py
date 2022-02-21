@@ -42,6 +42,16 @@ class Test:
     lanes_excluded = []
 
     def __init__(self, no_hw=False):
+
+        # Initialize Logger
+        self.logger = logging.getLogger(__name__)
+        if not self.logger.handlers:
+            ch = TqdmLoggingHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            ch.setFormatter(formatter)
+            ch.setLevel(logging.WARNING)
+            self.logger.addHandler(ch)
+
         if not no_hw:
             from .daq import Fpga, Chip, onecold
             self.fpga = Fpga()
@@ -54,15 +64,6 @@ class Test:
         self.sequence = Sequence(chip=self.chip)
 
         self.title = ''
-
-        # Initialize Logger
-        self.logger = logging.getLogger(__name__)
-        if not self.logger.handlers:
-            ch = TqdmLoggingHandler()
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            ch.setFormatter(formatter)
-            ch.setLevel(logging.WARNING)
-            self.logger.addHandler(ch)
 
         self.result = None
 
@@ -225,6 +226,7 @@ class Test:
             if len(tomask) > 0:
                 tomask.sort()
                 print("\tDisabling noisy/unsync lanes: %s" % (tomask))
+                from .daq import onecold
                 self.chip.enable_readout(onecold(tomask, 0xffff))
 
             print("\tLines are silent.")

@@ -644,6 +644,7 @@ class Chip:
                 pselect = (subpr << 4) | (onehot(pixels) & 0xf)
                 self.write_gcrpar('HELPER_SECCFG_PIXELSELECT', pselect)
                 self.write_pcr()
+                time.sleep(1/self.fpga.clock_hz * self.read_gcrpar('READOUT_CLK_DIVIDER') * 128 * 2)
 
     def pixels_mask(self, sections=0xffff, columns=0xffff, prs=None, master=None, pixels = 0xf):
         """Mask a set of pixels
