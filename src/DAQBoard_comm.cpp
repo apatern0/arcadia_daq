@@ -107,6 +107,7 @@ int ChipIf::read_gcr(uint16_t addr, uint16_t* data, bool force_update){
 		}
 
 		res = spi_transfer(ARCADIA_RD_DATA, 0, &reg_data);
+		res = spi_transfer(ARCADIA_RD_DATA, 0, &reg_data);
 		if (res){
 			std::cerr << "Failed to read data" << std::endl;
 			return res;
@@ -663,6 +664,8 @@ FPGAIf::FPGAIf(std::string connection_xml_path, std::string device_id, bool verb
 }
 
 int FPGAIf::connect() {
+	std::cout << "Configuring SPI..." << std::endl;
+
 	for (uint8_t id: {0, 1, 2}) {
 		// init firmware spi controller
 		std::string spi_id = "spi_id" + std::to_string(id);

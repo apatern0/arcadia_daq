@@ -216,8 +216,8 @@ class ChipData:
             self.falling = False
             return
 
+        """
         packet_bytes = self.fpga_packet.to_bytes()
-
         self.bottom  = (packet_bytes[0] >> 0) & 0x01
         self.hitmap  = (((packet_bytes[1] >> 0) & 0x01) << 7) | ((packet_bytes[0] >> 1) & 0x7F)
         self.corepr  = (packet_bytes[1] >> 1) & 0x7F
@@ -226,6 +226,21 @@ class ChipData:
         self.ts      = packet_bytes[3]
         self.ts_fpga = (packet_bytes[6] << 16) | (packet_bytes[5] << 8) | packet_bytes[4]
         self.ser     = packet_bytes[7] & 0xF
+        self.falling = False
+        """
+
+        chipword = (self.fpga_packet.word & 0xffffffff)
+        chipword = ((chipword >> 16) & 0xFFFF) | ((chipword & 0xFFFF) << 16)
+
+        self.bottom  = 1
+        self.hitmap  = chipword & 0xFF
+        self.corepr  = (chipword >> 8) & 0x1FF
+        self.col     = (chipword >> (8+9)) & 0xF
+        self.sec     = (chipword >> (8+9+4)) & 0xF
+        self.ts      = (chipword >> (8+9+4+4)) & 0xF
+        self.tag      = (chipword >> (8+9+4+4+4)) & 0x7
+        self.ts_fpga = (self.fpga_packet.word >> (4*8)) & 0xFFFFFF
+        self.ser     = (self.fpga_packet.word >> (7*8)) & 0xF
         self.falling = False
 
         self.extend_timestamp()

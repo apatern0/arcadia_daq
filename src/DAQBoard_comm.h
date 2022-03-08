@@ -55,7 +55,7 @@ static const std::map <std::string, arcadia_reg_param> GCR_map = {
 	{"READOUT_CLK_DIVIDER",       {0, 0x000f,  0, 3}},
 	{"TIMING_CLK_DIVIDER",        {0, 0x000f,  4, 8}},
 	{"MAX_READS",                 {0, 0x000f,  8, 8}},
-	{"TOKEN_COUNTER",             {0, 0x000f, 12, 8}},
+	{"UNUSED0",                   {0, 0x000f, 12, 0}},
 
 	{"TEST_PULSE_MASK",           {1, 0xffff, 0, 0}},
 	{"SECTION_READ_MASK",         {2, 0xffff, 0, 0}},
@@ -72,14 +72,18 @@ static const std::map <std::string, arcadia_reg_param> GCR_map = {
 	{"TIMESTAMP_LATCHES",         {7, 0x0001, 6, 1}},
 	{"DISABLE_SMART_READOUT",     {7, 0x0001, 7, 0}},
 	{"EOS_CLOCK_GATING_ENABLE",   {7, 0x0001, 8, 0}},
+	{"STAGE_COUNTER_SEND_ADDRESS",{7, 0x0007, 9, 0}},
+	{"STAGE_COUNTER_READ_WAIT",   {7, 0x0007, 12, 0}},
+	{"CORE_ADDRESSING_READOUT",   {7, 0x0001, 15, 0}},
 
 	{"HELPER_SECCFG_SECTIONS",    { 8, 0xffff,  0, 0xffff}},
 	{"HELPER_SECCFG_COLUMNS",     { 9, 0xffff,  0, 0xffff}},
-	{"HELPER_SECCFG_PRSTART",     {10, 0x007f,  0, 0x007f}},
-	{"HELPER_SECCFG_PRSKIP",      {10, 0x007f,  7, 0x0000}},
+	{"HELPER_SECCFG_PRSTART",     {10, 0x01ff,  0, 0x01ff}},
+	{"HELPER_SECCFG_PIXELSELECT", {10, 0x001f,  9, 0x001e}},
 	{"HELPER_SECCFG_CFGDATA",     {10, 0x0003, 14, 0x0001}},
-	{"HELPER_SECCFG_PRSTOP",      {11, 0x007f,  0, 0x0000}},
-	{"HELPER_SECCFG_PIXELSELECT", {11, 0x001f,  7, 0x001f}},
+
+	{"HELPER_SECCFG_PRSTOP",      {11, 0x01ff,  0, 0x0000}},
+	{"HELPER_SECCFG_PRSKIP",      {11, 0x01ff,  9, 0x0000}},
 
 	BIASX_REGMAP(0)
 	BIASX_REGMAP(1)
@@ -144,6 +148,7 @@ static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
 	{"setDaqMode",           {0x2c, 0x0001,  0, 0}},
 	{"setTrigDelay",         {0x2d, 0xffff,  0, 0}},
 	{"setTrigWindow",        {0x2e, 0x00ff,  0, 0}},
+	{"gatedClock",           {0x2f, 0x0001,  0, 0}},
 };
 
 

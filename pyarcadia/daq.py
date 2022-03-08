@@ -446,7 +446,7 @@ class Chip:
         :param update: Update from previous value or substitute
         :type update: bool
         """
-        self.gcr_onehot(2, sections, update)
+        self.gcr_onehot(1, sections, update)
 
     def injection_enable(self, sections=0xffff, update=False):
         """Enables injection on selected sections.
@@ -457,7 +457,7 @@ class Chip:
         :param update: Update from previous value or substitute
         :type update: bool
         """
-        self.gcr_onecold(2, sections, update)
+        self.gcr_onecold(1, sections, update)
 
     def read_disable(self, sections=0xffff, update=False):
         """Disables readout on selected sections.
