@@ -6,6 +6,7 @@ import threading
 import json
 import codecs
 import numpy as np
+import matplotlib.pyplot as plt
 from tabulate import tabulate
 """
 from tqdm import tqdm
@@ -395,6 +396,18 @@ class SubSequence:
             words.append(packet.fpga_packet.word)
 
         json.dump(words, codecs.open(saveas, 'w', encoding='utf-8'), separators=(',', ':'), sort_keys=True, indent=4)
+
+    def show(self):
+        data = np.full((512, 512), 0.0)
+
+        for d in self.get_data():
+            for p in d.get_pixels():
+                data[p.row][p.col] += 1
+
+        fig, ax = plt.subplots()
+        image = ax.imshow(data, interpolation='none', origin='lower', vmin=0)
+        plt.colorbar(image, orientation='horizontal')
+        plt.show()
 
 
 class Sequence:

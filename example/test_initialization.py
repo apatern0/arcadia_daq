@@ -58,6 +58,7 @@ print(f"GR0 is 0x%x. SPI SDO working? {gcr0 == gcr0_ex}\n" % gcr0)
 pktcount = x.chip.packets_count()
 print(f"Currently having {pktcount} packets in the FIFO.")
 
+"""
 # Inject some pixels
 x.chip.write_gcrpar('DISABLE_SMART_READOUT', 1)
 pixels = randomize_pixels()
@@ -73,3 +74,4 @@ print("Received:")
 
 x.chip.injection_analog()
 inject_and_compare(pixels)
+"""

@@ -678,3 +678,33 @@ class Test:
 
     def close_plots(self):
         plt.close('all')
+
+    def disable_noisy_pixels(self, timeout=10, idle=2):
+        self.chip.force_nomask()
+        self.chip.force_injection()
+
+        start = time.time()
+        maskno = 0
+
+        idle_turns = 0
+
+        while time.time() - start < timeout:
+            data = SubSequence( self.chip.readout() )
+
+            if len(data) == 0:
+                idle_turns += 1
+                if idle_turns*1E-3 == idle:
+                    return True
+            else:
+                idle_turns = 0
+
+            data = data.squash_data()
+            for packet in data:
+                for pixel in packet.get_pixels():
+                    self.chip.pixel_cfg(pixel, mask=True)
+                    print(f"{maskno}: Masked pixel {pixel}")
+                    maskno += 1
+
+            time.sleep(1E-3)
+
+        return False
