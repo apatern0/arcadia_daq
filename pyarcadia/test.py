@@ -14,6 +14,7 @@ import tqdm
 
 from .sequence import Sequence, SubSequence
 from .data import ChipData, TestPulse
+from .daq import Chip
 
 class TqdmLoggingHandler(logging.Handler):
     def __init__(self, level=logging.NOTSET):
@@ -364,7 +365,7 @@ class Test:
 
         self.logger.warning("Timestamp alignment: FPGA: %x CHIP: %x DELTA: %x", ts_fpga, ts_chip, ts_delta)
 
-    def initialize(self, sync_not_calibrate=True, auto_read=True, iterations=2):
+    def initialize(self, sync_not_calibrate=True, auto_read=True, iterations=2, trigger_mode=0):
         """Perform default test and chip initialization routines.
 
         :param bool sync_not_calibrate: Avoid to perform lanes calibration
@@ -372,6 +373,8 @@ class Test:
         """
         if not self.fpga.connected:
             self.fpga.connect()
+
+        self.chip.send_controller_command('setDaqMode', (0 if Chip.md == 1 else 1) << 1 | (trigger_mode & 0b1))
 
         # Load configuration
         self.load_cfg()

@@ -100,6 +100,7 @@ class Chip:
     """
 
     fpga : Fpga = None
+    md : int = 1
     ts_us : int = None
 
     def __init__(self, chip_id, chipif, fpga):
@@ -352,7 +353,11 @@ class Chip:
     def hard_reset(self):
         """Sends a hard reset to the chip through the Reset pin.
         """
+        self.send_controller_command('gatedClock', 0x0)
+        time.sleep(0.01)
         self.send_controller_command('doRESET', 0x1)
+        time.sleep(0.01)
+        self.send_controller_command('gatedClock', 0x1)
 
     def soft_reset(self):
         """Sends a hard reset to the chip through ICR resets.

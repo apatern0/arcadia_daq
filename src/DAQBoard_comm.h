@@ -145,7 +145,7 @@ static const std::map <std::string, arcadia_reg_param> ctrl_cmd_map = {
 	{"loadTSDeltaLSB",       {0x2a, 0xfffff,  0, 0}},
 	{"loadTSDeltaMSB",       {0x2b, 0xfffff,  0, 0}},
 
-	{"setDaqMode",           {0x2c, 0x0001,  0, 0}},
+	{"setDaqMode",           {0x2c, 0x0003,  0, 0}},
 	{"setTrigDelay",         {0x2d, 0xffff,  0, 0}},
 	{"setTrigWindow",        {0x2e, 0x00ff,  0, 0}},
 	{"gatedClock",           {0x2f, 0x0001,  0, 0}},
